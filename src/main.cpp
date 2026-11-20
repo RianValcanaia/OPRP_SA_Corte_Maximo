@@ -1,19 +1,22 @@
 /*
-    main.cpp — esqueleto do TF de Max-Cut
+    main.cpp — Max-Cut com Simulated Annealing (versão sequencial)
 
-    Uso: ./maxcut <grafo.txt> <saida.txt> [--seed N]
+    Uso: ./maxcut <grafo.txt> <saida.txt> [--seed N] [--t0 X] [--t1 X] [--varreduras S]
+
+    Lê o grafo, roda o SA e grava a melhor partição encontrada: uma linha com n
+    caracteres 0/1. Informações de diagnóstico vão para a tela.
  */
 #include <iostream>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "grafo.hpp"
+#include "sa.hpp"
 
 namespace {
 
@@ -23,24 +26,35 @@ namespace {
         return std::chrono::duration<double>(Relogio::now() - inicio).count();
     }
 
-    uint64_t proximoSplitmix(uint64_t &estado) {
-        uint64_t z = (estado += 0x9E3779B97F4A7C15ULL);
-        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-        return z ^ (z >> 31);
-    }
-
     void mostrarUso(const char *programa) {
-        std::fprintf(stderr, "uso: %s <grafo.txt> <saida.txt> [--seed N]\n", programa);
+        std::fprintf(stderr, "uso: %s <grafo.txt> <saida.txt> [--seed N] [--t0 X] [--t1 X] [--varreduras S]\n", programa);
     }
 
+    // Le as opcoes "--chave valor" a partir de argv[3].
+    sa::Parametros lerParametros(int argc, char **argv) {
+        sa::Parametros param;
+
+        for (int i = 3; i < argc; i += 2) {
+            const std::string chave = argv[i];
+            
+            if (i + 1 >= argc) throw std::invalid_argument("faltou o valor de '" + chave + "'");
+            const std::string valor = argv[i + 1];
+
+            if (chave == "--seed") param.seed = std::stoull(valor);
+            else if (chave == "--t0") param.T0 = std::stod(valor);
+            else if (chave == "--t1") param.T1 = std::stod(valor);
+            else if (chave == "--varreduras") param.varreduras = std::stol(valor);
+            else throw std::invalid_argument("argumento desconhecido '" + chave + "'");
+        }
+        return param;
+    }
 
     void escreverSolucao(
-        const std::string &caminho, 
+        const std::string &caminho,
         const std::vector<uint8_t> &x
     ){
         std::string linha(x.size() + 1, '0');
-        
+
         for (size_t i = 0; i < x.size(); ++i) linha[i] = x[i] ? '1' : '0';
         linha[x.size()] = '\n';
 
@@ -49,7 +63,7 @@ namespace {
         if (!f) throw std::runtime_error("não foi possível criar '" + caminho + "'");
 
         size_t escritos = std::fwrite(linha.data(), 1, linha.size(), f);
-        
+
         bool ok = (std::fclose(f) == 0) && escritos == linha.size();
         if (!ok) throw std::runtime_error("falha ao escrever '" + caminho + "'");
     }
@@ -66,38 +80,29 @@ int main(int argc, char **argv) {
     const std::string CAMINHO_GRAFO = argv[1];
     const std::string CAMINHO_SAIDA = argv[2];
 
-    // semente fixa por enquanto para depurar
-    uint64_t seed = 12345;
-    
-    // for (int i = 3; i < argc; i += 2) {
-    //     std::string chave = argv[i];
-    //     if (chave == "--seed" && i + 1 < argc) {
-    //         seed = std::strtoull(argv[i + 1], nullptr, 10);
-    //     } else {
-    //         std::fprintf(stderr, "erro: argumento desconhecido ou sem valor: '%s'\n", argv[i]);
-    //         mostrarUso(argv[0]);
-    //         return 1;
-    //     }
-    // }
-
     try {
-        grafo::Grafo grafo = grafo::lerArquivo(CAMINHO_GRAFO);
+        const sa::Parametros param = lerParametros(argc, argv);
+
+        const grafo::Grafo g = grafo::lerArquivo(CAMINHO_GRAFO);
         const double tempo_leitura = segundosDesde(inicio);
 
-        // Partição aleatória (placeholder do SA).
-        std::vector<uint8_t> particao(grafo.qtd_vertices);
-        uint64_t estado = seed;
+        const sa::Resultado r = sa::executar(g, param);
 
-        for (int32_t v = 0; v < grafo.qtd_vertices; ++v) 
-            particao[v] = static_cast<uint8_t>(proximoSplitmix(estado) & 1u);
+        escreverSolucao(CAMINHO_SAIDA, r.melhor);
 
-        escreverSolucao(CAMINHO_SAIDA, particao);
+        std::cout << "n=" << g.qtd_vertices << " m=" << g.qtd_arestas << " grau_max=" << g.grauMaximo() << '\n'
+                  << "T0=" << param.T0 << " T1=" << param.T1 << " varreduras=" << param.varreduras
+                  << " seed=" << param.seed << '\n'
+                  << "tempo: leitura=" << tempo_leitura << "s sa=" << r.segundos << "s ("
+                  << (r.segundos > 0 ? static_cast<double>(param.varreduras) / r.segundos : 0.0) << " varreduras/s)"
+                  << " total=" << segundosDesde(inicio) << "s\n"
+                  << "corte: inicial=" << r.corteInicial << " final=" << r.corteFinal << " melhor=" << r.corteMelhor
+                  << " (varredura " << r.varreduraDaMelhor << ")\n";
 
-        std::cout << "n=" << grafo.qtd_vertices << " m=" << grafo.qtd_arestas << " grau_max= " << grafo.grauMaximo() << std::endl
-                  << "tempo de leitura=" << tempo_leitura << " tempo total=" << segundosDesde(inicio) << std::endl 
-                  << "corte aleatorio=" << static_cast<long long>(grafo::valorDoCorte(grafo, particao)) 
-                  << "seed=" << seed << std::endl;
-
+    } catch (const std::invalid_argument &erro) {
+        std::fprintf(stderr, "erro: %s\n", erro.what());
+        mostrarUso(argv[0]);
+        return 1;
     } catch (const std::exception &erro) {
         std::fprintf(stderr, "erro: %s\n", erro.what());
         return 1;
