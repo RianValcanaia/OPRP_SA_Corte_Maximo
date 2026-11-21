@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,8 @@ namespace sa {
         bool guiadoPorTempo = false;    // true: T segue o relógio até 'prazo'
         Relogio::time_point prazo{};    // instante em que o SA deve terminar 
         uint64_t seed = 12345;
+        std::ostream *traco = nullptr;  // se != nullptr, escreve aqui a trajetoria do SA em CSV
+        long pontosTraco = 1000;        // quantos pontos (linhas) o traco tem, aproximadamente
     };
 
     struct Resultado {

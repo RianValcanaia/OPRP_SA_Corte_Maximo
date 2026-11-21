@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <fstream>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -34,9 +35,10 @@ namespace {
 
     void mostrarUso(const char *programa) {
         std::fprintf(stderr,
-                     "uso: %s <grafo.txt> <saida.txt> [--tempo S] [--varreduras N] [--seed N] [--t0 X] [--t1 X]\n"
+                     "uso: %s <grafo.txt> <saida.txt> [--tempo S] [--varreduras N] [--seed N] [--t0 X] [--t1 X] [--trace ARQ.csv]\n"
                      "  --tempo S       duração alvo do programa inteiro, em segundos (padrão %.0f)\n"
-                     "  --varreduras N  roda N varreduras fixas em vez de usar o tempo\n",
+                     "  --varreduras N  roda N varreduras fixas em vez de usar o tempo\n"
+                     "  --trace ARQ     grava a trajetória do SA (varredura,segundos,temperatura,corte,melhor) em CSV\n",
                      programa, TEMPO_PADRAO);
     }
 
@@ -47,9 +49,10 @@ namespace {
 
     // Le as opcoes "--chave valor" a partir de argv[3]
     sa::Parametros lerParametros(
-        int argc, 
-        char **argv, 
-        Relogio::time_point inicio
+        int argc,
+        char **argv,
+        Relogio::time_point inicio,
+        std::string &caminhoTraco
     ) {
         sa::Parametros param;
         param.seed = sementeAleatoria();
@@ -68,6 +71,7 @@ namespace {
             else if (chave == "--t1") param.T1 = std::stod(valor);
             else if (chave == "--tempo") { tempoTotal = std::stod(valor); temTempo = true; }
             else if (chave == "--varreduras") { param.varreduras = std::stol(valor); temVarreduras = true; }
+            else if (chave == "--trace") caminhoTraco = valor;
             else throw std::invalid_argument("argumento desconhecido '" + chave + "'");
         }
 
@@ -115,7 +119,15 @@ int main(int argc, char **argv) {
     const std::string CAMINHO_SAIDA = argv[2];
 
     try {
-        const sa::Parametros param = lerParametros(argc, argv, inicio);
+        std::string caminhoTraco;
+        sa::Parametros param = lerParametros(argc, argv, inicio, caminhoTraco);
+
+        std::ofstream arquivoTraco;
+        if (!caminhoTraco.empty()) {
+            arquivoTraco.open(caminhoTraco);
+            if (!arquivoTraco) throw std::runtime_error("não foi possível criar '" + caminhoTraco + "'");
+            param.traco = &arquivoTraco;
+        }
 
         const grafo::Grafo g = grafo::lerArquivo(CAMINHO_GRAFO);
         const double tempo_leitura = segundosDesde(inicio);

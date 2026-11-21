@@ -281,6 +281,14 @@ namespace sa {
         r.corteMelhor = e.corte;
         r.melhor = e.particao;
 
+        // traco opcional da trajetoria
+        auto escreverTraco = [&](double temp, int64_t corte, int64_t melhorCorte) {
+            if (!param.traco) return;
+            *param.traco << r.varreduras << ',' << segundos(Relogio::now() - inicio) << ',' << temp << ','
+                         << corte << ',' << melhorCorte << '\n';
+        };
+        if (param.traco) *param.traco << "varredura,segundos,temperatura,corte,melhor\n";
+
         // guarda a melhor particao vista ao fim de cada varredura (so copia quando melhora)
         auto registrarMelhor = [&]() {
             if (e.corte > r.corteMelhor) {
@@ -292,11 +300,16 @@ namespace sa {
 
         if (!param.guiadoPorTempo) {
             // varreduras fixas: T depende só do índice da varredura (determinístico)
+            const long passoTraco = std::max(1L, param.varreduras / std::max(1L, param.pontosTraco));
+
             for (long s = 0; s < param.varreduras; ++s) {
-                montarLimiares(limiares, temperaturaGeometrica(s, param.varreduras, param.T0, param.T1));
+                const double temp = temperaturaGeometrica(s, param.varreduras, param.T0, param.T1);
+                montarLimiares(limiares, temp);
                 varrer(grafo, adjacencia, limiares, e, gerador);
                 ++r.varreduras;
                 registrarMelhor();
+
+                if (r.varreduras % passoTraco == 0) escreverTraco(temp, e.corte, r.corteMelhor);
             }
         } else {
             // guiado por tempo: T = T0 * (T1/T0)^(fração do tempo decorrido até o prazo)
@@ -304,12 +317,19 @@ namespace sa {
             const double duracao = segundos(param.prazo - t0);
             const long porConsulta = std::max(1L, VISITAS_ENTRE_CONSULTAS / std::max<long>(1, grafo.qtd_vertices));
 
+            double proximoTraco = 0.0;      // fracao do resfriamento em que sai a proxima linha do traco
+
             while (duracao > 0) {
                 const double fracao = segundos(Relogio::now() - t0) / duracao;
                 if (fracao >= 1.0) break;
 
                 const double temp = temperaturaPorFracao(fracao, param.T0, param.T1);
                 montarLimiares(limiares, temp);
+
+                if (fracao >= proximoTraco) {
+                    escreverTraco(temp, e.corte, r.corteMelhor);
+                    proximoTraco += 1.0 / static_cast<double>(std::max(1L, param.pontosTraco));
+                }
 
                 for (long k = 0; k < porConsulta; ++k) {
                     varrer(grafo, adjacencia, limiares, e, gerador);
@@ -321,6 +341,7 @@ namespace sa {
         }
 
         r.corteFinal = e.corte;     // estado ao fim do resfriamento, antes da descida
+        escreverTraco(param.T1, e.corte, r.corteMelhor);
 
         // polimento final
         Estado melhor = estadoDaParticao(grafo, r.melhor);
@@ -334,6 +355,9 @@ namespace sa {
             r.corteDescida = e.corte;
             r.melhor = e.particao;
         }
+
+        // ultima linha do traco: o resultado final, apos a descida gulosa
+        escreverTraco(param.T1, r.corteDescida, r.corteDescida);
 
         r.segundos = segundos(Relogio::now() - inicio);
 
