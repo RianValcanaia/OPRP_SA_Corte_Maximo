@@ -43,27 +43,36 @@ namespace sa {
             return soma;
         }
 
-        // particao aleatoria + delta de todos os vertices + corte, tudo calculado do zero.
-        Estado estadoInicial(
+        // estado completo de uma particao dada: delta de todos os vertices + corte, tudo calculado do zero.
+        Estado estadoDaParticao(
             const grafo::Grafo &grafo,
-            rng::Gerador &gerador
+            std::vector<uint8_t> particao
         ) {
             Estado e;
-            e.particao.resize(grafo.qtd_vertices);
+            e.particao = std::move(particao);
 
-            // sorteia o lado de cada vertice
-            for (auto &lado : e.particao) 
-                lado = static_cast<uint8_t>(gerador() & 1u);
-            
+            // calcula o vetor delta da particao
             e.delta.resize(grafo.qtd_vertices);
-
-            // calcula o vetor delta da particao inicial 
-            for (int32_t v = 0; v < grafo.qtd_vertices; ++v) 
+            for (int32_t v = 0; v < grafo.qtd_vertices; ++v)
                 e.delta[v] = calcularDelta(grafo, e.particao, v);
 
             e.corte = grafo::valorDoCorte(grafo, e.particao);
 
             return e;
+        }
+
+        // particao aleatoria + o estado completo dela.
+        Estado estadoInicial(
+            const grafo::Grafo &grafo,
+            rng::Gerador &gerador
+        ) {
+            std::vector<uint8_t> particao(grafo.qtd_vertices);
+
+            // sorteia o lado de cada vertice
+            for (auto &lado : particao)
+                lado = static_cast<uint8_t>(gerador() & 1u);
+
+            return estadoDaParticao(grafo, std::move(particao));
         }
 
         // adjacencia compactada 32 bits: 1 bit de sinal (1 = -1; 0 = +1) + 31 bits para os vizinhos
@@ -146,6 +155,49 @@ namespace sa {
                     //   -1   | diferentes |       1        |         1         |  0   |     +2
                 }
             }
+        }
+
+        // aceita so movimentos de ganho estritamente positivo e varre
+        // ate nenhum vertice poder melhorar o corte 
+        long descidaGulosa(
+            const grafo::Grafo &grafo,
+            const std::vector<uint32_t> &adjacencia,
+            Estado &estado
+        ) {
+            const int32_t qtd_vertices = grafo.qtd_vertices;
+            const int32_t *offsets = grafo.offsets.data();
+            const uint32_t *adj = adjacencia.data();
+
+            uint8_t *particao = estado.particao.data();
+            int32_t *delta = estado.delta.data();
+
+            long varreduras = 0;
+            bool melhorou = true;
+
+            while (melhorou) {
+                melhorou = false;
+                ++varreduras;
+
+                for (int32_t i = 0; i < qtd_vertices; ++i) {
+                    const int32_t d = delta[i];
+                    if (d <= 0) continue;       // so aceita ganho estritamente positivo
+                    melhorou = true;
+
+                    // aplica o movimento
+                    estado.corte += d;
+                    particao[i] = !particao[i];
+                    delta[i] = -d;
+
+                    const uint32_t particao_i = particao[i];
+                    for (int32_t k = offsets[i]; k < offsets[i + 1]; ++k) {
+                        const uint32_t entrada = adj[k];
+                        const uint32_t j = entrada & ~BIT_NEGATIVO;
+                        delta[j] += 2 - 4 * static_cast<int32_t>((entrada >> 31) ^ particao[j] ^ particao_i);
+                    }
+                }
+            }
+
+            return varreduras;
         }
 
         // verificacao de seguranca: confere o estado, recalcula do zero o corte e todos os deltas e compara com o atual
@@ -268,10 +320,25 @@ namespace sa {
             }
         }
 
-        r.corteFinal = e.corte;
+        r.corteFinal = e.corte;     // estado ao fim do resfriamento, antes da descida
+
+        // polimento final
+        Estado melhor = estadoDaParticao(grafo, r.melhor);
+        descidaGulosa(grafo, adjacencia, e);
+        descidaGulosa(grafo, adjacencia, melhor);
+
+        if (melhor.corte > e.corte) {
+            r.corteDescida = melhor.corte;
+            r.melhor = melhor.particao;
+        } else {
+            r.corteDescida = e.corte;
+            r.melhor = e.particao;
+        }
+
         r.segundos = segundos(Relogio::now() - inicio);
 
         r.aviso = verificarEstado(grafo, e);
+        if (r.aviso.empty()) r.aviso = verificarEstado(grafo, melhor);
         return r;
     }
 

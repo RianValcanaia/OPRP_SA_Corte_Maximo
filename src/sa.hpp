@@ -24,19 +24,20 @@ namespace sa {
     using Relogio = std::chrono::steady_clock;
 
     struct Parametros {
-        double T0 = 1.5;                // temperatura inicial
-        double T1 = 0.3;                // temperatura final
-        long varreduras = 10000;        // numero de varreduras (só no modo de varreduras fixas)
+        double T0 = 2.0;                // temperatura inicial
+        double T1 = 0.15;               // temperatura final 
+        long varreduras = 10000;        // numero de varreduras 
         bool guiadoPorTempo = false;    // true: T segue o relógio até 'prazo'
         Relogio::time_point prazo{};    // instante em que o SA deve terminar 
         uint64_t seed = 12345;
     };
 
     struct Resultado {
-        std::vector<uint8_t> melhor;   // melhor particao vista (ao fim de uma varredura)
+        std::vector<uint8_t> melhor;   // particao devolvida no final
         int64_t corteInicial = 0;      // corte da particao inicial
-        int64_t corteMelhor = 0;       // corte da melhor particao
-        int64_t corteFinal = 0;        // corte do estado ao fim da ultima varredura
+        int64_t corteMelhor = 0;       
+        int64_t corteFinal = 0;        
+        int64_t corteDescida = 0;      
         long varreduras = 0;           // varreduras realizadas
         long varreduraDaMelhor = 0;    // 0 = estado inicial; s = fim da s-ésima varredura
         double segundos = 0;           // tempo gasto somente no SA

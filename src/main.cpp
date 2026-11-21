@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
                   << "s | varreduras=" << r.varreduras << " ("
                   << (r.segundos > 0 ? static_cast<double>(r.varreduras) / r.segundos : 0.0) << "/s)\n"
                   << "corte: inicial=" << r.corteInicial << " final=" << r.corteFinal << " melhor=" << r.corteMelhor
-                  << " (varredura " << r.varreduraDaMelhor << ")\n";
+                  << " (varredura " << r.varreduraDaMelhor << ") | apos descida gulosa=" << r.corteDescida << '\n';
 
         if (!r.aviso.empty()) 
             std::fprintf(stderr, "AVISO: auto-verificação falhou: %s\n", r.aviso.c_str());
