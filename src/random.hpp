@@ -27,7 +27,6 @@ namespace rng {
                 return z ^ (z >> 31);
             }
 
-        
         public:
             // A semente passa por splitmix64 para preencher os 4 estados 
             explicit Gerador(uint64_t semente) {
@@ -50,13 +49,5 @@ namespace rng {
 
                 return resultado;
             }
-
     };
-
-    // Real uniforme em [0, 1).
-    inline double sortearReal01(Gerador &gerador) {
-        // usa somente os 53 bits mais significativos
-        return static_cast<double>(gerador() >> 11) * 0x1.0p-53;
-    }
-
 }  // namespace rng

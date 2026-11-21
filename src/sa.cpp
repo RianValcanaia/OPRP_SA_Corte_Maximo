@@ -14,6 +14,9 @@ namespace sa {
         // sobrecarregar com consultas.
         constexpr long VISITAS_ENTRE_CONSULTAS = 20000;
 
+        // Bit que marca se é negativo (0 = +1; 1 = -1)
+        constexpr uint32_t BIT_NEGATIVO = 0x80000000u;
+        
         // estado do SA: particao, ganho de cada vertice e valor do corte
         struct Estado {
             std::vector<uint8_t> particao;
@@ -63,16 +66,47 @@ namespace sa {
             return e;
         }
 
+        // adjacencia compactada 32 bits: 1 bit de sinal (1 = -1; 0 = +1) + 31 bits para os vizinhos
+        // assim o laco faz uma leitura em vez de duas (vizinhos[] e peso[]).
+        std::vector<uint32_t> compactarAdjacencia(
+            const grafo::Grafo &grafo
+        ) {
+            std::vector<uint32_t> adjacencia(grafo.vizinhos.size());
+
+            for (size_t k = 0; k < adjacencia.size(); ++k)
+                adjacencia[k] = static_cast<uint32_t>(grafo.vizinhos[k]) | (grafo.peso[k] < 0 ? BIT_NEGATIVO : 0u);
+
+            return adjacencia;
+        }
+
+        // tabela de limiares de aceitacao para a temperatura T
+        // delta esta em [-grau_max, +grau_max]
+        // limiares[0] aceita sempre (delta >= 0). 
+        // limiares[m] = P(aceitar uma piora de m) * 2^32
+        void montarLimiares(
+            std::vector<uint32_t> &limiares,
+            double temp
+        ) {
+            limiares[0] = UINT32_MAX;   // simula infi
+
+            for (size_t m = 1; m < limiares.size(); ++m) {
+                const double p = std::exp(-static_cast<double>(m) / temp);
+                limiares[m] = static_cast<uint32_t>(std::min(p * 4294967296.0, 4294967295.0));
+            }
+        }
+
+        // uma varredura (linhas 4 a 9)
         void varrer(
             const grafo::Grafo &grafo,
+            const std::vector<uint32_t> &adjacencia,
+            const std::vector<uint32_t> &limiares,
             Estado &estado,
-            double temp,
             rng::Gerador &gerador
         ) {
             const int32_t qtd_vertices = grafo.qtd_vertices;
             const int32_t *offsets = grafo.offsets.data();
-            const int32_t *vizinhos = grafo.vizinhos.data();
-            const int8_t *peso = grafo.peso.data();
+            const uint32_t *adj = adjacencia.data();
+            const uint32_t *limiar = limiares.data();
 
             uint8_t *particao = estado.particao.data();
             int32_t *delta = estado.delta.data();
@@ -80,23 +114,36 @@ namespace sa {
             for (int32_t i = 0; i < qtd_vertices; ++i) {
                 const int32_t d = delta[i];
 
-                // Metropolis: ganho >= 0 sempre aceita; piora (d < 0) aceita com prob. e^(d/T).
-                if (d < 0 && !(rng::sortearReal01(gerador) < std::exp(d / temp))) continue;
+                const uint32_t sorteio = static_cast<uint32_t>(gerador() >> 32);
+                
+                uint32_t lim = UINT32_MAX;      // d >= 0 aceita sempre
+                if(d < 0) lim = limiar[-d];     
+                if(sorteio > lim) continue;
 
                 // aplica o movimento
                 estado.corte += d;
-                
+
                 // inverte o bit
                 particao[i] = !particao[i];
-                
+
                 // troca de sinal
                 delta[i] = -d;
 
                 // atualiza o delta dos vizinhos de i
-                const uint8_t particao_i = particao[i];
+                const uint32_t particao_i = particao[i];
                 for (int32_t k = offsets[i]; k < offsets[i + 1]; ++k) {
-                    const int32_t j = vizinhos[k];
-                    delta[j] += peso[k] * 2  * (particao[j] == particao_i ? 1 : -1);
+                    const uint32_t entrada = adj[k];       // le a palavra do vizinho
+                    const uint32_t j = entrada & ~BIT_NEGATIVO;     // extrai o numero do vizinho 
+                    
+                    // flag = (peso negativo?) ^ (lados diferentes?)
+                    //                                       peso negativo      lado de j     lado de i
+                    delta[j] += 2 - 4 * static_cast<int32_t>((entrada >> 31) ^ particao[j] ^ particao_i); 
+                    
+                    //   peso | lados      | peso negativo? | lados diferentes? | flag | delta[j] muda
+                    //   +1   | iguais     |       0        |         0         |  0   |     +2
+                    //   +1   | diferentes |       0        |         1         |  1   |     -2
+                    //   -1   | iguais     |       1        |         0         |  1   |     -2
+                    //   -1   | diferentes |       1        |         1         |  0   |     +2
                 }
             }
         }
@@ -172,6 +219,11 @@ namespace sa {
         rng::Gerador gerador(param.seed);
         Estado e = estadoInicial(grafo, gerador);
 
+        // adjacencia compactada feita uma vez 
+        const std::vector<uint32_t> adjacencia = compactarAdjacencia(grafo);
+        // tabela de limiares refeita a cada mudanca de temperatura (grau_max + 1 posicoes)
+        std::vector<uint32_t> limiares(grafo.grauMaximo() + 1);
+        
         Resultado r;
         r.corteInicial = e.corte;
         r.corteMelhor = e.corte;
@@ -189,7 +241,8 @@ namespace sa {
         if (!param.guiadoPorTempo) {
             // varreduras fixas: T depende só do índice da varredura (determinístico)
             for (long s = 0; s < param.varreduras; ++s) {
-                varrer(grafo, e, temperaturaGeometrica(s, param.varreduras, param.T0, param.T1), gerador);
+                montarLimiares(limiares, temperaturaGeometrica(s, param.varreduras, param.T0, param.T1));
+                varrer(grafo, adjacencia, limiares, e, gerador);
                 ++r.varreduras;
                 registrarMelhor();
             }
@@ -204,8 +257,10 @@ namespace sa {
                 if (fracao >= 1.0) break;
 
                 const double temp = temperaturaPorFracao(fracao, param.T0, param.T1);
+                montarLimiares(limiares, temp);
+
                 for (long k = 0; k < porConsulta; ++k) {
-                    varrer(grafo, e, temp, gerador);
+                    varrer(grafo, adjacencia, limiares, e, gerador);
                     
                     ++r.varreduras;
                     registrarMelhor();
