@@ -9,6 +9,8 @@ convergencia  trajetória de uma execução (gerada com --trace): corte atual e 
               temperatura (escala log). O painel de baixo amplia a parte final.
 resultados    cortes de cada execução por instância, um ponto por execução, a mediana (traço) e a
               meta do aux/README.md (linha tracejada). Cada CSV vira um grupo de pontos.
+escalabilidade  speedup e eficiência × nº de threads, a partir de results/escalabilidade-openmp.csv
+              (colunas maquina,instancia,threads,varreduras_por_s). A referência é a versão sequencial (1 thread).
 """
 import argparse
 import csv
@@ -132,6 +134,42 @@ def resultados(args):
     print(f"gravado: {saida}")
 
 
+def escalabilidade(args):
+    plt = importar_matplotlib()
+    dados = {}
+    with open(args.csv, newline="", encoding="utf-8") as f:
+        for l in csv.DictReader(f):
+            dados.setdefault((l["maquina"], l["instancia"]), {})[int(l["threads"])] = float(l["varreduras_por_s"])
+
+    instancias = sorted({i for _, i in dados})
+    fig, eixos = plt.subplots(2, len(instancias), figsize=(6 * len(instancias), 8), squeeze=False)
+    for col, inst in enumerate(instancias):
+        ax_s, ax_e = eixos[0][col], eixos[1][col]
+        maximo = 1
+        for (maq, i), pts in sorted(dados.items()):
+            if i != inst:
+                continue
+            ts = sorted(pts)
+            base = pts[1]
+            sp = [pts[t] / base for t in ts]
+            maximo = max(maximo, max(ts))
+            ax_s.plot(ts, sp, "o-", label=maq)
+            ax_e.plot(ts, [x / t for x, t in zip(sp, ts)], "o-", label=maq)
+        ax_s.plot([1, maximo], [1, maximo], "k:", label="ideal")
+        ax_s.set_title(f"{inst}: speedup (vs sequencial)")
+        ax_e.set_title(f"{inst}: eficiência (speedup / threads)")
+        ax_s.set_ylabel("speedup")
+        ax_e.set_ylabel("eficiência")
+        for ax in (ax_s, ax_e):
+            ax.set_xlabel("threads")
+            ax.grid(alpha=0.3)
+            ax.legend()
+    fig.tight_layout()
+    saida = Path(args.saida) if args.saida else RAIZ / "results" / "escalabilidade-openmp.png"
+    fig.savefig(saida, dpi=130)
+    print(f"gravado: {saida}")
+
+
 def principal():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -145,6 +183,11 @@ def principal():
     r.add_argument("csv", nargs="+", help="um ou mais CSVs gerados pelo rodar.py (um grupo de pontos por CSV)")
     r.add_argument("--saida", help="PNG de saída (padrão results/resultados.png)")
     r.set_defaults(f=resultados)
+
+    e = sub.add_parser("escalabilidade", help="speedup e eficiência × threads")
+    e.add_argument("csv", nargs="?", default=str(RAIZ / "results" / "escalabilidade-openmp.csv"))
+    e.add_argument("--saida", help="PNG de saída (padrão results/escalabilidade-openmp.png)")
+    e.set_defaults(f=escalabilidade)
 
     args = ap.parse_args()
     args.f(args)

@@ -1,0 +1,7 @@
+rotulo,data,git,maquina,cpus,instancia,seed,modo,tempo_alvo_s,tempo_externo_s,corte,varreduras,t0,t1,status
+omp-notebook-t12,2026-11-21T15:10:03,984aa6c+mod,rcvalcanaia,16,n20000_s1,1,tempo,80.0,78.01,23744,2956232,2,0.15,ok
+omp-notebook-t12,2026-11-21T15:11:21,984aa6c+mod,rcvalcanaia,16,n20000_s1,2,tempo,80.0,78.01,23761,2887256,2,0.15,ok
+omp-notebook-t12,2026-11-21T15:12:39,984aa6c+mod,rcvalcanaia,16,n20000_s1,3,tempo,80.0,78.01,23750,2807844,2,0.15,ok
+omp-notebook-t12,2026-11-21T15:13:57,984aa6c+mod,rcvalcanaia,16,n100000_s1,1,tempo,80.0,78.05,117070,770181,2,0.15,ok
+omp-notebook-t12,2026-11-21T15:15:16,984aa6c+mod,rcvalcanaia,16,n100000_s1,2,tempo,80.0,78.05,117028,785265,2,0.15,ok
+omp-notebook-t12,2026-11-21T15:16:34,984aa6c+mod,rcvalcanaia,16,n100000_s1,3,tempo,80.0,78.05,117029,797808,2,0.15,ok

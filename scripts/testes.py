@@ -266,6 +266,8 @@ def montar_testes(ctx):
 
     ok("--varredura colorida com 1 thread", PEQUENO, args=["--varredura", "colorida", "--threads", "1", "--varreduras", "100"])
     ok("--threads 4 sem --varredura usa a colorida", PEQUENO, args=["--threads", "4", "--varreduras", "100"])
+    ok("--threads 0 (todas as CPUs disponíveis)", PEQUENO, args=["--threads", "0", "--varreduras", "100"])
+    ok("--threads 100 (acima do número de CPUs: é reduzido, não falha)", PEQUENO, args=["--threads", "100", "--varreduras", "100"])
     ok("--varredura sequencial com 1 thread", PEQUENO, args=["--varredura", "sequencial", "--varreduras", "100"])
 
     # ---- entradas inválidas (devem dar erro limpo)
@@ -319,7 +321,6 @@ def montar_testes(ctx):
         ("--varreduras negativo", ["--varreduras", "-3"], "varreduras"),
         ("--varreduras não numérico", ["--varreduras", "dez"], "--varreduras"),
         ("--trace em pasta inexistente", ["--varreduras", "10", "--trace", "/nao/existe/t.csv"], "criar"),
-        ("--threads zero", ["--varreduras", "10", "--threads", "0"], "threads"),
         ("--threads negativo", ["--varreduras", "10", "--threads", "-2"], "threads"),
         ("--threads absurdo (5000)", ["--varreduras", "10", "--threads", "5000"], "threads"),
         ("--threads não numérico", ["--varreduras", "10", "--threads", "muitas"], "--threads"),

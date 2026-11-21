@@ -7,7 +7,10 @@
     Lê o grafo, roda o SA e grava a melhor partição encontrada: uma linha com n
     caracteres 0/1. Informações de diagnóstico vão para a tela.
  */
+#include <omp.h>
+
 #include <iostream>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -45,7 +48,7 @@ namespace {
                      "uso: %s <grafo.txt> <saida.txt> [--tempo S] [--varreduras N] [--seed N] [--t0 X] [--t1 X] [--trace ARQ.csv]\n"
                      "  --tempo S       duração alvo do programa inteiro, em segundos (padrão %.0f)\n"
                      "  --varreduras N  roda N varreduras fixas em vez de usar o tempo\n"
-                     "  --threads N     threads OpenMP\n"
+                     "  --threads N     threads OpenMP (0 = todas as CPUs disponiveis; acima disso, reduz)\n"
                      "  --varredura V   sequencial ou colorida\n"
                      "  --trace ARQ     grava a trajetória do SA em CSV\n",
                      programa, TEMPO_PADRAO);
@@ -144,17 +147,29 @@ namespace {
         if (!(tempoTotal > 0 && tempoTotal <= TEMPO_MAXIMO))
             throw std::invalid_argument("--tempo deve estar entre 0 (exclusive) e " + std::to_string(static_cast<long>(TEMPO_MAXIMO)) + " segundos");
 
-        if (threads < 1 || threads > MAX_THREADS)
-            throw std::invalid_argument("--threads deve estar entre 1 e " + std::to_string(MAX_THREADS));
+        if (threads < 0 || threads > MAX_THREADS)
+            throw std::invalid_argument("--threads deve estar entre 0 (automatico) e " + std::to_string(MAX_THREADS));
+
+        const bool pediuParalelo = threads != 1;
+
+        const long long disponiveis = std::max(1, omp_get_num_procs());
+        
+        if (threads == 0)
+            threads = disponiveis;
+        else if (threads > disponiveis) {
+            std::fprintf(stderr, "nota: --threads %lld excede as %lld CPUs disponiveis; usando %lld\n", threads, disponiveis, disponiveis);
+            threads = disponiveis;
+        }
+        
         param.threads = static_cast<int>(threads);
 
         // sem --varredura: sequencial com 1 thread, colorida (OpenMP) com mais de 1
-        if (tipoVarredura.empty()) 
-            param.colorida = threads > 1;
-        else if (tipoVarredura == "colorida") 
+        if (tipoVarredura.empty())
+            param.colorida = pediuParalelo;
+        else if (tipoVarredura == "colorida")
             param.colorida = true;
         else if (tipoVarredura == "sequencial") {
-            if (threads > 1) 
+            if (pediuParalelo)
                 throw std::invalid_argument("--varredura sequencial nao combina com --threads maior que 1");
             param.colorida = false;
         } else
