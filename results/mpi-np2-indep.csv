@@ -1,0 +1,4 @@
+rotulo,data,git,maquina,cpus,instancia,seed,modo,tempo_alvo_s,tempo_externo_s,corte,varreduras,t0,t1,status
+mpi-np2-indep,2026-11-21T16:18:25,1ae75db+mod,rcvalcanaia,16,n100000_s1,1,tempo,80.0,78.15,117057,423265,2,0.15,ok
+mpi-np2-indep,2026-11-21T16:19:43,1ae75db+mod,rcvalcanaia,16,n100000_s1,2,tempo,80.0,78.15,117065,451984,2,0.15,ok
+mpi-np2-indep,2026-11-21T16:21:01,1ae75db+mod,rcvalcanaia,16,n100000_s1,3,tempo,80.0,78.15,117035,433167,2,0.15,ok

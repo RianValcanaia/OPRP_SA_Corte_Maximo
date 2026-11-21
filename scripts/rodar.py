@@ -73,7 +73,7 @@ def garantir_binarios(maxcut, verificador, compilar):
     elif compilar and not mais_novo_que(maxcut, fontes):
         print(f"compilando {maxcut.relative_to(RAIZ)} ...")
         cpps = [str(f) for f in fontes if f.suffix == ".cpp"]
-        subprocess.run(["g++", "-std=c++17", "-O3", "-Wall", "-Wextra", "-o", str(maxcut)] + cpps, check=True)
+        subprocess.run(["mpicxx", "-std=c++17", "-O3", "-Wall", "-Wextra", "-fopenmp", "-DOMPI_SKIP_MPICXX", "-o", str(maxcut)] + cpps, check=True)
     elif not maxcut.exists():
         sys.exit(f"erro: {maxcut} não existe (tire o --sem-compilar ou compile antes)")
 
@@ -99,7 +99,7 @@ def rodar_uma(cfg, instancia, seed):
 
     with tempfile.TemporaryDirectory() as tmp:
         saida = Path(tmp) / "solucao.txt"
-        cmd = [str(cfg.maxcut), str(grafo), str(saida), "--seed", str(seed)]
+        cmd = (["mpirun"] + shlex.split(cfg.mpirun_extra) + ["-np", str(cfg.np)] if cfg.np else []) + [str(cfg.maxcut), str(grafo), str(saida), "--seed", str(seed)]
         cmd += ["--varreduras", str(cfg.varreduras)] if cfg.varreduras else ["--tempo", str(cfg.tempo)]
         cmd += shlex.split(cfg.extra)
         if cfg.trace:
@@ -129,7 +129,8 @@ def rodar_uma(cfg, instancia, seed):
         m = re.search(r"T0=(\S+) T1=(\S+)", saida_texto)
         if m:
             linha["t0"], linha["t1"] = m.group(1), m.group(2)
-        reportado = re.search(r"apos descida gulosa=(-?\d+)", saida_texto)
+        # com varios ranks, "escolhido" eh o corte da particao gravada (a de "apos descida gulosa" eh a do rank 0)
+        reportado = re.search(r"escolhido=(-?\d+)", saida_texto) or re.search(r"apos descida gulosa=(-?\d+)", saida_texto)
 
         if p.returncode != 0:
             linha["status"] = "ERRO: " + (p.stderr.strip().splitlines() or ["código " + str(p.returncode)])[0]
@@ -191,6 +192,8 @@ def principal():
     ap.add_argument("--paralelo", type=int, default=1,
                     help="execuções simultâneas (padrão 1; >1 acelera experimentos mas altera a velocidade medida)")
     ap.add_argument("--limite", type=float, default=90.0, help="limite de tempo externo em s (padrão 90, o da competição)")
+    ap.add_argument("--np", type=int, default=0, help="roda com 'mpirun -np N' (0 = sem mpirun)")
+    ap.add_argument("--mpirun-extra", default="", help='opcoes do mpirun, ex.: "--oversubscribe --bind-to none"')
     ap.add_argument("--maxcut", type=Path, default=RAIZ / "maxcut")
     ap.add_argument("--verificador", type=Path, default=RAIZ / "build" / "verificador")
     ap.add_argument("--sem-compilar", action="store_true", help="não (re)compila o maxcut; usa --maxcut como está")

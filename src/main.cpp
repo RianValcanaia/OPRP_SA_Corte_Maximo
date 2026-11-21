@@ -6,12 +6,14 @@
 
     Lê o grafo, roda o SA e grava a melhor partição encontrada: uma linha com n
     caracteres 0/1. Informações de diagnóstico vão para a tela.
- */
-#include <omp.h>
 
+    Roda sozinho ou com "mpirun -np N": cada rank roda uma cadeia de SA independente (com OpenMP
+    dentro do rank) e a melhor partição entre os ranks é gravada pelo rank 0.
+ */
 #include <iostream>
 #include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
@@ -22,6 +24,7 @@
 #include <vector>
 
 #include "grafo.hpp"
+#include "mpi_util.hpp"
 #include "sa.hpp"
 
 namespace {
@@ -48,7 +51,7 @@ namespace {
                      "uso: %s <grafo.txt> <saida.txt> [--tempo S] [--varreduras N] [--seed N] [--t0 X] [--t1 X] [--trace ARQ.csv]\n"
                      "  --tempo S       duração alvo do programa inteiro, em segundos (padrão %.0f)\n"
                      "  --varreduras N  roda N varreduras fixas em vez de usar o tempo\n"
-                     "  --threads N     threads OpenMP (0 = todas as CPUs disponiveis; acima disso, reduz)\n"
+                     "  --threads N     threads OpenMP por rank (padrão e 0 = as CPUs do rank; acima disso, reduz; 1 = sequencial)\n"
                      "  --varredura V   sequencial ou colorida\n"
                      "  --trace ARQ     grava a trajetória do SA em CSV\n",
                      programa, TEMPO_PADRAO);
@@ -102,14 +105,17 @@ namespace {
         int argc,
         char **argv,
         Relogio::time_point inicio,
-        std::string &caminhoTraco
+        std::string &caminhoTraco,
+        int cpusPorRank,
+        bool avisar
     ) {
         sa::Parametros param;
         param.seed = sementeAleatoria();
 
         bool temTempo = false, temVarreduras = false;
         double tempoTotal = TEMPO_PADRAO;
-        long long threads = 1;
+        long long threads = 0;          // 0 = automatico (as CPUs deste rank)
+        bool temThreads = false;        // o usuario escreveu --threads?
         std::string tipoVarredura;      // "", "sequencial" ou "colorida"
 
         for (int i = 3; i < argc; i += 2) {
@@ -134,8 +140,10 @@ namespace {
             }
             else if (chave == "--trace") 
                 caminhoTraco = valor;
-            else if (chave == "--threads") 
+            else if (chave == "--threads") {
                 threads = lerInteiro(chave, valor);
+                temThreads = true;
+            }
             else if (chave == "--varredura") 
                 tipoVarredura = valor;
             else throw std::invalid_argument("argumento desconhecido '" + chave + "'");
@@ -150,30 +158,32 @@ namespace {
         if (threads < 0 || threads > MAX_THREADS)
             throw std::invalid_argument("--threads deve estar entre 0 (automatico) e " + std::to_string(MAX_THREADS));
 
-        const bool pediuParalelo = threads != 1;
-
-        const long long disponiveis = std::max(1, omp_get_num_procs());
-        
+        // Mais threads que CPUs piora muito: uma thread sem CPU faz as outras esperarem na barreira de cada cor
+        // (medido 4 a 5 vezes mais lento com 12 threads em 8 CPUs). 0 = todas as CPUs deste rank.
+        const long long pedido = threads;
+        const long long disponiveis = std::max(1, cpusPorRank);
         if (threads == 0)
             threads = disponiveis;
         else if (threads > disponiveis) {
-            std::fprintf(stderr, "nota: --threads %lld excede as %lld CPUs disponiveis; usando %lld\n", threads, disponiveis, disponiveis);
+            if (avisar)
+                std::fprintf(stderr, "nota: --threads %lld excede as %lld CPUs disponiveis por rank; usando %lld\n", threads, disponiveis, disponiveis);
             threads = disponiveis;
         }
-        
-        param.threads = static_cast<int>(threads);
 
-        // sem --varredura: sequencial com 1 thread, colorida (OpenMP) com mais de 1
+        // sem --varredura: colorida (OpenMP) se houver mais de 1 thread, senao sequencial
         if (tipoVarredura.empty())
-            param.colorida = pediuParalelo;
+            param.colorida = threads > 1;
         else if (tipoVarredura == "colorida")
             param.colorida = true;
         else if (tipoVarredura == "sequencial") {
-            if (pediuParalelo)
+            // pedir threads (diferente de 1) junto com a varredura sequencial nao faz sentido
+            if (temThreads && pedido != 1)
                 throw std::invalid_argument("--varredura sequencial nao combina com --threads maior que 1");
             param.colorida = false;
+            threads = 1;
         } else
             throw std::invalid_argument("valor inválido para --varredura: '" + tipoVarredura + "' (use sequencial ou colorida)");
+        param.threads = static_cast<int>(threads);
 
         param.guiadoPorTempo = !temVarreduras;
         if (param.guiadoPorTempo) {
@@ -203,56 +213,132 @@ namespace {
 
 }  // namespace
 
+namespace {
+
+    // Corpo do programa. Todos os ranks passam pelas mesmas chamadas coletivas, na mesma ordem; um erro que
+    // todos veem igual (argumentos, arquivo) faz todos sairem juntos, sem deixar ninguem esperando.
+    int executarPrograma(int argc, char **argv, Relogio::time_point inicio, const dist::Ambiente &amb) {
+        const bool rank0 = amb.rank == 0;
+
+        if (argc < 3) {
+            if (rank0) mostrarUso(argv[0]);
+            return 1;
+        }
+        const std::string CAMINHO_GRAFO = argv[1];
+        const std::string CAMINHO_SAIDA = argv[2];
+
+        try {
+            std::string caminhoTraco;
+            sa::Parametros param = lerParametros(argc, argv, inicio, caminhoTraco, amb.cpusPorRank, rank0);
+
+            // so o rank 0 grava a trajetoria
+            std::ofstream arquivoTraco;
+            if (!caminhoTraco.empty() && rank0) {
+                arquivoTraco.open(caminhoTraco);
+                if (!arquivoTraco) throw std::runtime_error("não foi possível criar '" + caminhoTraco + "'");
+                param.traco = &arquivoTraco;
+            }
+
+            // o rank 0 le o arquivo e manda o grafo aos outros: os outros nos nao precisam enxergar o arquivo
+            grafo::Grafo g;
+            std::string erroDaLeitura;
+            if (rank0) {
+                try {
+                    g = grafo::lerArquivo(CAMINHO_GRAFO);
+                } catch (const std::exception &erro) {
+                    erroDaLeitura = erro.what();
+                    if (erroDaLeitura.empty()) erroDaLeitura = "falha ao ler o grafo";
+                }
+            }
+            const std::string erro = dist::difundirGrafo(amb, g, erroDaLeitura);
+            if (!erro.empty()) {
+                if (rank0) std::fprintf(stderr, "erro: %s\n", erro.c_str());
+                return 1;
+            }
+            const double tempo_leitura = segundosDesde(inicio);
+
+            // Prazo comum: cada rank comecou em um instante um pouco diferente, entao todos adotam o maior
+            // tempo ja gasto entre eles e terminam juntos (so ha prazo no modo por tempo).
+            if (param.guiadoPorTempo) {
+                const double orcamento = std::chrono::duration<double>(param.prazo - inicio).count();
+                const double gasto = dist::maximoEntreRanks(segundosDesde(inicio));
+                param.prazo = Relogio::now() + std::chrono::duration_cast<Relogio::duration>(std::chrono::duration<double>(orcamento - gasto));
+            }
+
+            // sementes: a do rank 0 vale para todos; cada rank soma um deslocamento (rank 0 fica com a original)
+            const uint64_t sementeBase = dist::valorDoRank0(param.seed);
+            param.seed = sementeBase + static_cast<uint64_t>(amb.rank) * 0x9E3779B97F4A7C15ULL;
+
+            // se a cadeia deste rank falhar, ele continua nas chamadas coletivas com corte "infinitamente ruim"
+            sa::Resultado r;
+            int64_t corteLocal = LLONG_MIN;
+            std::string falha;
+            try {
+                r = sa::executar(g, param);
+                corteLocal = grafo::valorDoCorte(g, r.melhor);
+            } catch (const std::exception &e) {
+                falha = e.what();
+                std::fprintf(stderr, "rank %d: erro no SA: %s\n", amb.rank, falha.c_str());
+            }
+
+            const dist::MelhorCorte melhor = dist::melhorEntreRanks(corteLocal);
+            if (melhor.corte == LLONG_MIN) {
+                if (rank0) std::fprintf(stderr, "erro: nenhum rank conseguiu rodar o SA\n");
+                return 1;
+            }
+
+            std::vector<uint8_t> particao = r.melhor;
+            if (rank0) particao.resize(g.qtd_vertices);
+            dist::enviarParticaoAoRank0(amb, melhor.rank, particao);
+            const std::vector<int64_t> cortes = dist::reunirCortes(amb, corteLocal);
+
+            if (!r.aviso.empty())
+                std::fprintf(stderr, "AVISO: auto-verificação falhou (rank %d): %s\n", amb.rank, r.aviso.c_str());
+
+            if (!rank0) return 0;
+
+            // a saida eh gravada mesmo que a auto-verificacao tenha acusado divergencia
+            escreverSolucao(CAMINHO_SAIDA, particao);
+
+            std::cout << "n=" << g.qtd_vertices << " m=" << g.qtd_arestas << " grau_max=" << g.grauMaximo() << '\n'
+                      << "T0=" << param.T0 << " T1=" << param.T1 << " seed=" << sementeBase << '\n'
+                      << "modo=" << (param.guiadoPorTempo ? "tempo" : "varreduras fixas") << " varredura="
+                      << (param.colorida ? "colorida (" + std::to_string(r.numCores) + " cores, " + std::to_string(param.threads) + " threads)"
+                                         : std::string("sequencial")) << '\n'
+                      << "mpi: ranks=" << amb.tamanho << " (ranks neste no=" << amb.tamanhoLocal << ", CPUs por rank=" << amb.cpusPorRank
+                      << ") melhor=rank " << melhor.rank << '\n';
+            if (amb.tamanho > 1) {
+                std::cout << "corte de cada rank:";
+                for (int64_t c : cortes) std::cout << ' ' << c;
+                std::cout << '\n';
+            }
+            std::cout << "tempo: leitura=" << tempo_leitura << "s sa=" << r.segundos << "s total=" << segundosDesde(inicio)
+                      << "s | varreduras=" << r.varreduras << " ("
+                      << (r.segundos > 0 ? static_cast<double>(r.varreduras) / r.segundos : 0.0) << "/s) (rank 0)\n"
+                      << "corte: inicial=" << r.corteInicial << " final=" << r.corteFinal << " melhor=" << r.corteMelhor
+                      << " (varredura " << r.varreduraDaMelhor << ") | apos descida gulosa=" << r.corteDescida
+                      << " | escolhido=" << melhor.corte << '\n';
+        } catch (const std::invalid_argument &erro) {
+            // argumentos invalidos: todos os ranks veem o mesmo erro e saem juntos
+            if (rank0) {
+                std::fprintf(stderr, "erro: %s\n", erro.what());
+                mostrarUso(argv[0]);
+            }
+            return 1;
+        } catch (const std::exception &erro) {
+            std::fprintf(stderr, "erro: %s\n", erro.what());
+            return 1;
+        }
+        return 0;
+    }
+
+}  // namespace
+
 int main(int argc, char **argv) {
     const auto inicio = Relogio::now();
 
-    if (argc < 3) {
-        mostrarUso(argv[0]);
-        return 1;
-    }
-    const std::string CAMINHO_GRAFO = argv[1];
-    const std::string CAMINHO_SAIDA = argv[2];
-
-    try {
-        std::string caminhoTraco;
-        sa::Parametros param = lerParametros(argc, argv, inicio, caminhoTraco);
-
-        std::ofstream arquivoTraco;
-        if (!caminhoTraco.empty()) {
-            arquivoTraco.open(caminhoTraco);
-            if (!arquivoTraco) throw std::runtime_error("não foi possível criar '" + caminhoTraco + "'");
-            param.traco = &arquivoTraco;
-        }
-
-        const grafo::Grafo g = grafo::lerArquivo(CAMINHO_GRAFO);
-        const double tempo_leitura = segundosDesde(inicio);
-
-        const sa::Resultado r = sa::executar(g, param);
-
-        // a saida eh gravada mesmo que a auto-verificacao tenha acusado divergencia
-        escreverSolucao(CAMINHO_SAIDA, r.melhor);
-
-        std::cout << "n=" << g.qtd_vertices << " m=" << g.qtd_arestas << " grau_max=" << g.grauMaximo() << '\n'
-                  << "T0=" << param.T0 << " T1=" << param.T1 << " seed=" << param.seed << '\n' 
-                  << "modo=" << (param.guiadoPorTempo ? "tempo" : "varreduras fixas") << " varredura="
-                  << (param.colorida ? "colorida (" + std::to_string(r.numCores) + " cores, " 
-                  + std::to_string(param.threads) + " threads)": std::string("sequencial")) << '\n'
-                  << "tempo: leitura=" << tempo_leitura << "s sa=" << r.segundos << "s total=" << segundosDesde(inicio)
-                  << "s | varreduras=" << r.varreduras << " ("
-                  << (r.segundos > 0 ? static_cast<double>(r.varreduras) / r.segundos : 0.0) << "/s)\n"
-                  << "corte: inicial=" << r.corteInicial << " final=" << r.corteFinal << " melhor=" << r.corteMelhor
-                  << " (varredura " << r.varreduraDaMelhor << ") | apos descida gulosa=" << r.corteDescida << '\n';
-
-        if (!r.aviso.empty()) 
-            std::fprintf(stderr, "AVISO: auto-verificação falhou: %s\n", r.aviso.c_str());
-
-    } catch (const std::invalid_argument &erro) {
-        std::fprintf(stderr, "erro: %s\n", erro.what());
-        mostrarUso(argv[0]);
-        return 1;
-    } catch (const std::exception &erro) {
-        std::fprintf(stderr, "erro: %s\n", erro.what());
-        return 1;
-    }
-    return 0;
+    dist::Ambiente amb = dist::iniciar(argc, argv);
+    const int codigo = executarPrograma(argc, argv, inicio, amb);
+    dist::finalizar();
+    return codigo;
 }

@@ -19,6 +19,7 @@ import argparse
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,17 @@ def texto_grafo(n, arestas, fim="\n", linha_fim="\n"):
     return linha_fim.join(linhas) + fim
 
 
+def grafo_aleatorio(n, m, semente):
+    """Grafo com n vértices e m arestas distintas de peso +-1 (texto no formato de entrada)."""
+    r = random.Random(semente)
+    pares = set()
+    while len(pares) < m:
+        u, v = r.randrange(n), r.randrange(n)
+        if u != v:
+            pares.add((min(u, v), max(u, v)))
+    return texto_grafo(n, [(u, v, r.choice((1, -1))) for u, v in sorted(pares)])
+
+
 class Contexto:
     def __init__(self, maxcut, verificador):
         self.maxcut = maxcut
@@ -61,14 +73,19 @@ class Contexto:
         self.contador += 1
         return self.tmp / f"{self.contador}{sufixo}"
 
-    def rodar(self, conteudo, args, timeout=120, saida=None):
-        """Roda o maxcut sobre 'conteudo' (str ou bytes; None = arquivo inexistente). Devolve um dict."""
+    def rodar(self, conteudo, args, timeout=120, saida=None, np=None):
+        """Roda o maxcut sobre 'conteudo' (str ou bytes; None = arquivo inexistente). Devolve um dict.
+        np: se dado, roda com 'mpirun -np np'. Sem --threads nos args, usa 1 thread (o padrao do programa
+        seria todas as CPUs, e a bateria roda varios testes ao mesmo tempo)."""
+        if "--threads" not in args:
+            args = ["--threads", "1"] + args
         grafo = self.novo_caminho(".txt")
         if conteudo is not None:
             grafo.write_bytes(conteudo if isinstance(conteudo, bytes) else conteudo.encode())
         saida = saida or self.novo_caminho(".out")
         inicio = time.monotonic()
-        p = subprocess.run([str(self.maxcut), str(grafo), str(saida)] + args, capture_output=True, text=True,
+        prefixo = ["mpirun", "--oversubscribe", "-np", str(np)] if np else []
+        p = subprocess.run(prefixo + [str(self.maxcut), str(grafo), str(saida)] + args, capture_output=True, text=True,
                            timeout=timeout)
         r = {"rc": p.returncode, "stdout": p.stdout, "stderr": p.stderr, "tempo": time.monotonic() - inicio,
              "grafo": grafo, "saida": saida, "corte": None, "verif": None}
@@ -108,7 +125,8 @@ def checar_ok(r, otimo=None, n=None):
     exigir(re.fullmatch(rb"[01]+\n", texto) is not None, "saída não é uma única linha de 0/1 terminada em \\n")
     if n is not None:
         exigir(len(texto) == n + 1, f"saída tem {len(texto) - 1} caracteres, esperado {n}")
-    m = re.search(r"apos descida gulosa=(-?\d+)", r["stdout"])
+    # com varios ranks, "escolhido" eh o corte da particao gravada (a de "apos descida gulosa" eh a do rank 0)
+    m = re.search(r"escolhido=(-?\d+)", r["stdout"]) or re.search(r"apos descida gulosa=(-?\d+)", r["stdout"])
     exigir(m is not None, "o programa não imprimiu o corte final")
     exigir(int(m.group(1)) == r["corte"], f"o programa diz {m.group(1)}, o verificador calcula {r['corte']}")
     if otimo is not None:
@@ -263,6 +281,72 @@ def montar_testes(ctx):
                    f"{nome}: a solução muda com o número de threads (indício de corrida): "
                    + ", ".join(f"{th}t={hash(s) % 10**6}" for th, s in saidas.items()))
     T.append(("colorida: mesma solução com 1, 2, 4 e 8 threads (aleatório e hub)", colorida_mesma_solucao_com_qualquer_numero_de_threads))
+
+    # ---- MPI: cada rank roda uma cadeia, o rank 0 grava a melhor. So se o mpirun existir.
+    if shutil.which("mpirun"):
+        MPI = ["--varreduras", "300", "--seed", "1", "--threads", "2"]
+        medio = grafo_aleatorio(300, 1200, 7)
+
+        for np_ in (1, 2, 4):
+            T.append((f"mpi: -np {np_} (n=300), saída válida",
+                      lambda np_=np_: checar_ok(ctx.rodar(medio, MPI, np=np_), n=300)))
+
+        def mpi_borda():
+            for grafo, n in (("1 0\n", 1), ("6 0\n", 6), ("2 1\n1 2 1\n", 2)):
+                checar_ok(ctx.rodar(grafo, MPI, np=3), n=n)
+        T.append(("mpi: -np 3 em n=1, só isolados e n=2", mpi_borda))
+
+        def mpi_otimo():
+            r = random.Random(321)
+            for k in range(12):
+                n = r.randint(3, 12)
+                pares = [(u, v) for u in range(n) for v in range(u + 1, n)]
+                arestas = [(u, v, r.choice((1, -1))) for u, v in r.sample(pares, r.randint(0, min(len(pares), 3 * n)))]
+                res = ctx.rodar(texto_grafo(n, arestas), ["--varreduras", "2000", "--seed", str(k + 1), "--threads", "2"], np=3)
+                try:
+                    checar_ok(res, forca_bruta(n, arestas), n)
+                except Falha as e:
+                    raise Falha(f"grafo {k} (n={n}): {e}")
+        T.append(("mpi: -np 3, 12 grafos pequenos == ótimo por força bruta", mpi_otimo))
+
+        def mpi_np1_igual_sem_mpirun():
+            a = ctx.rodar(medio, MPI)
+            b = ctx.rodar(medio, MPI, np=1)
+            checar_ok(a)
+            checar_ok(b)
+            exigir(a["saida"].read_bytes() == b["saida"].read_bytes(), "-np 1 deveria dar a mesma solução do programa sem mpirun")
+        T.append(("mpi: -np 1 dá a mesma solução que sem mpirun (mesma semente)", mpi_np1_igual_sem_mpirun))
+
+        def mpi_deterministico():
+            a = ctx.rodar(medio, MPI, np=3)
+            b = ctx.rodar(medio, MPI, np=3)
+            checar_ok(a)
+            checar_ok(b)
+            exigir(a["saida"].read_bytes() == b["saida"].read_bytes(), "mesma semente e -np deveria dar a mesma solução")
+        T.append(("mpi: -np 3, mesma semente, mesma solução", mpi_deterministico))
+
+        def mpi_escolhe_o_maior():
+            r = ctx.rodar(medio, MPI, np=4)
+            checar_ok(r, n=300)
+            m = re.search(r"corte de cada rank:((?: -?\d+)+)", r["stdout"])
+            exigir(m is not None, "o programa não imprimiu o corte de cada rank")
+            cortes = [int(x) for x in m.group(1).split()]
+            exigir(len(cortes) == 4, f"esperava 4 cortes, veio {cortes}")
+            exigir(max(cortes) == r["corte"], f"o corte gravado ({r['corte']}) não é o maior entre os ranks {cortes}")
+        T.append(("mpi: -np 4 grava a melhor partição entre os ranks", mpi_escolhe_o_maior))
+
+        T.append(("mpi: arquivo inexistente com -np 3 (todos saem, sem travar)",
+                  lambda: checar_erro(ctx.rodar(None, MPI, timeout=30, np=3))))
+        T.append(("mpi: arquivo inválido com -np 3 (só o rank 0 lê, todos saem juntos)",
+                  lambda: checar_erro(ctx.rodar("isto nao eh um grafo\n", MPI, timeout=30, np=3))))
+        T.append(("mpi: argumento inválido com -np 2",
+                  lambda: checar_erro(ctx.rodar(PEQUENO, ["--seed", "abc", "--threads", "1"], timeout=30, np=2), "--seed")))
+
+        def mpi_tempo():
+            r = ctx.rodar(medio, ["--tempo", "3", "--seed", "1", "--threads", "2"], np=2)
+            checar_ok(r, n=300)
+            exigir(0.5 < r["tempo"] < 2.8, f"--tempo 3 com -np 2 deveria durar ~1 s de SA, durou {r['tempo']:.2f}s")
+        T.append(("--tempo 3: mpi -np 2 termina no prazo", mpi_tempo))
 
     ok("--varredura colorida com 1 thread", PEQUENO, args=["--varredura", "colorida", "--threads", "1", "--varreduras", "100"])
     ok("--threads 4 sem --varredura usa a colorida", PEQUENO, args=["--threads", "4", "--varreduras", "100"])
