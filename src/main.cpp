@@ -4,11 +4,8 @@
     Uso: ./maxcut <grafo.txt> <saida.txt> [--tempo S] [--varreduras N] [--seed N] [--t0 X] [--t1 X]
                   [--threads N] [--varredura sequencial|colorida] [--trace ARQ.csv]
 
-    Lê o grafo, roda o SA e grava a melhor partição encontrada: uma linha com n
-    caracteres 0/1. Informações de diagnóstico vão para a tela.
-
-    Roda sozinho ou com "mpirun -np N": cada rank roda uma cadeia de SA independente (com OpenMP
-    dentro do rank) e a melhor partição entre os ranks é gravada pelo rank 0.
+    Le o grafo, roda o SA e grava a melhor particao encontrada: uma linha com n
+    caracteres 0/1. Informacoes de diagnostico vao para a tela.
  */
 #include <iostream>
 #include <algorithm>
@@ -214,10 +211,12 @@ namespace {
 }  // namespace
 
 namespace {
-
-    // Corpo do programa. Todos os ranks passam pelas mesmas chamadas coletivas, na mesma ordem; um erro que
-    // todos veem igual (argumentos, arquivo) faz todos sairem juntos, sem deixar ninguem esperando.
-    int executarPrograma(int argc, char **argv, Relogio::time_point inicio, const dist::Ambiente &amb) {
+    int executarPrograma(
+        int argc, 
+        char **argv, 
+        Relogio::time_point inicio, 
+        const dist::Ambiente &amb
+    ) {
         const bool rank0 = amb.rank == 0;
 
         if (argc < 3) {
@@ -250,15 +249,17 @@ namespace {
                     if (erroDaLeitura.empty()) erroDaLeitura = "falha ao ler o grafo";
                 }
             }
+
             const std::string erro = dist::difundirGrafo(amb, g, erroDaLeitura);
             if (!erro.empty()) {
                 if (rank0) std::fprintf(stderr, "erro: %s\n", erro.c_str());
                 return 1;
             }
+
             const double tempo_leitura = segundosDesde(inicio);
 
-            // Prazo comum: cada rank comecou em um instante um pouco diferente, entao todos adotam o maior
-            // tempo ja gasto entre eles e terminam juntos (so ha prazo no modo por tempo).
+            // cada rank comecou em um instante um pouco diferente, entao todos adotam o maior
+            // tempo ja gasto entre eles e terminam juntos
             if (param.guiadoPorTempo) {
                 const double orcamento = std::chrono::duration<double>(param.prazo - inicio).count();
                 const double gasto = dist::maximoEntreRanks(segundosDesde(inicio));

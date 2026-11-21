@@ -1,0 +1,5 @@
+rótulo: pt1-pt16-f1.5 | git: a4fdc73+mod | modo: 32 s | máquina: rcvalcanaia (16 CPUs) | 2026-11-21T16:40:13
+
+instância    exec   mediana       min       max      média      meta  med-meta t_ext máx  problemas
+---------------------------------------------------------------------------------------------------
+n100000_s1      3  116911.0    116901    116959   116923.7    116548    +363.0     30.21  

@@ -1,0 +1,5 @@
+rótulo: pt2-pt8-f1.3 | git: a4fdc73+mod | modo: 32 s | máquina: rcvalcanaia (16 CPUs) | 2026-11-21T16:49:15
+
+instância    exec   mediana       min       max      média      meta  med-meta t_ext máx  problemas
+---------------------------------------------------------------------------------------------------
+n20000_s1       3   23757.0     23757     23758    23757.3     23668     +89.0     30.12  

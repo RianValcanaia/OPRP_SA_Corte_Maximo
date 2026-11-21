@@ -1,0 +1,4 @@
+rotulo,data,git,maquina,cpus,instancia,seed,modo,tempo_alvo_s,tempo_externo_s,corte,varreduras,t0,t1,status
+pt1-pt16-f1.5,2026-11-21T16:38:42,a4fdc73+mod,rcvalcanaia,16,n100000_s1,1,tempo,32.0,30.21,116901,21580,2,0.15,ok
+pt1-pt16-f1.5,2026-11-21T16:39:12,a4fdc73+mod,rcvalcanaia,16,n100000_s1,2,tempo,32.0,30.19,116959,21702,2,0.15,ok
+pt1-pt16-f1.5,2026-11-21T16:39:43,a4fdc73+mod,rcvalcanaia,16,n100000_s1,3,tempo,32.0,30.18,116911,19975,2,0.15,ok
