@@ -67,7 +67,10 @@ def garantir_binarios(maxcut, verificador, compilar):
                        check=True)
 
     fontes = sorted((RAIZ / "src").glob("*.cpp")) + sorted((RAIZ / "src").glob("*.hpp"))
-    if compilar and not mais_novo_que(maxcut, fontes):
+    if compilar and (RAIZ / "Makefile").exists() and maxcut == RAIZ / "maxcut":
+        # usa o Makefile do projeto (as mesmas flags da entrega); o make só recompila o que mudou
+        subprocess.run(["make", "-s", "-C", str(RAIZ), "maxcut"], check=True)
+    elif compilar and not mais_novo_que(maxcut, fontes):
         print(f"compilando {maxcut.relative_to(RAIZ)} ...")
         cpps = [str(f) for f in fontes if f.suffix == ".cpp"]
         subprocess.run(["g++", "-std=c++17", "-O3", "-Wall", "-Wextra", "-o", str(maxcut)] + cpps, check=True)
@@ -188,7 +191,7 @@ def principal():
     ap.add_argument("--paralelo", type=int, default=1,
                     help="execuções simultâneas (padrão 1; >1 acelera experimentos mas altera a velocidade medida)")
     ap.add_argument("--limite", type=float, default=90.0, help="limite de tempo externo em s (padrão 90, o da competição)")
-    ap.add_argument("--maxcut", type=Path, default=RAIZ / "build" / "maxcut")
+    ap.add_argument("--maxcut", type=Path, default=RAIZ / "maxcut")
     ap.add_argument("--verificador", type=Path, default=RAIZ / "build" / "verificador")
     ap.add_argument("--sem-compilar", action="store_true", help="não (re)compila o maxcut; usa --maxcut como está")
     cfg = ap.parse_args()

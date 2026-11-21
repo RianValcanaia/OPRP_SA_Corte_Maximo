@@ -47,6 +47,48 @@ namespace {
         return (uint64_t{rd()} << 32) ^ rd() ^ static_cast<uint64_t>(Relogio::now().time_since_epoch().count());
     }
 
+    // maior --tempo aceito (1 dia). Sem limite, valores absurdos (1e10, 1e30, inf) estouram a conversao
+    // para duracao e o programa nunca terminaria.
+    constexpr double TEMPO_MAXIMO = 86400.0;
+
+    // converte o valor de uma opcao com mensagem de erro clara (em vez de "stod"/"stoull")
+    double lerReal(const std::string &chave, const std::string &valor) {
+        size_t usados = 0;
+        double x = 0;
+        try {
+            x = std::stod(valor, &usados);
+        } catch (const std::exception &) {
+            usados = 0;
+        }
+        if (usados == 0 || usados != valor.size())
+            throw std::invalid_argument("valor inválido para " + chave + ": '" + valor + "' (esperado um número)");
+        return x;
+    }
+
+    long long lerInteiro(const std::string &chave, const std::string &valor) {
+        size_t usados = 0;
+        long long x = 0;
+        try {
+            x = std::stoll(valor, &usados);
+        } catch (const std::exception &) {
+            usados = 0;
+        }
+        if (usados == 0 || usados != valor.size())
+            throw std::invalid_argument("valor inválido para " + chave + ": '" + valor + "' (esperado um inteiro)");
+        return x;
+    }
+
+    // a semente eh um inteiro sem sinal: so digitos
+    uint64_t lerSemente(const std::string &chave, const std::string &valor) {
+        if (valor.empty() || valor.find_first_not_of("0123456789") != std::string::npos)
+            throw std::invalid_argument("valor inválido para " + chave + ": '" + valor + "' (esperado um inteiro >= 0)");
+        try {
+            return std::stoull(valor);
+        } catch (const std::exception &) {
+            throw std::invalid_argument("valor inválido para " + chave + ": '" + valor + "' (grande demais)");
+        }
+    }
+
     // Le as opcoes "--chave valor" a partir de argv[3]
     sa::Parametros lerParametros(
         int argc,
@@ -66,11 +108,11 @@ namespace {
             if (i + 1 >= argc) throw std::invalid_argument("faltou o valor de '" + chave + "'");
             const std::string valor = argv[i + 1];
 
-            if (chave == "--seed") param.seed = std::stoull(valor);
-            else if (chave == "--t0") param.T0 = std::stod(valor);
-            else if (chave == "--t1") param.T1 = std::stod(valor);
-            else if (chave == "--tempo") { tempoTotal = std::stod(valor); temTempo = true; }
-            else if (chave == "--varreduras") { param.varreduras = std::stol(valor); temVarreduras = true; }
+            if (chave == "--seed") param.seed = lerSemente(chave, valor);
+            else if (chave == "--t0") param.T0 = lerReal(chave, valor);
+            else if (chave == "--t1") param.T1 = lerReal(chave, valor);
+            else if (chave == "--tempo") { tempoTotal = lerReal(chave, valor); temTempo = true; }
+            else if (chave == "--varreduras") { param.varreduras = static_cast<long>(lerInteiro(chave, valor)); temVarreduras = true; }
             else if (chave == "--trace") caminhoTraco = valor;
             else throw std::invalid_argument("argumento desconhecido '" + chave + "'");
         }
@@ -78,7 +120,9 @@ namespace {
         if (temTempo && temVarreduras) 
             throw std::invalid_argument("--tempo e --varreduras não podem ser usados juntos");
         
-        if (!(tempoTotal > 0)) throw std::invalid_argument("--tempo deve ser > 0");
+        // a forma "!(x > 0 && x <= max)" tambem rejeita NaN
+        if (!(tempoTotal > 0 && tempoTotal <= TEMPO_MAXIMO))
+            throw std::invalid_argument("--tempo deve estar entre 0 (exclusive) e " + std::to_string(static_cast<long>(TEMPO_MAXIMO)) + " segundos");
 
         param.guiadoPorTempo = !temVarreduras;
         if (param.guiadoPorTempo) {
