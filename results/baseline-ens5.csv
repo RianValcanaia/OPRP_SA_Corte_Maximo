@@ -1,0 +1,10 @@
+rotulo,data,git,maquina,cpus,instancia,seed,modo,tempo_alvo_s,tempo_externo_s,corte,varreduras,t0,t1,status
+baseline-ens5,2026-11-21T09:50:51,dc46288,ens5,8,n1000_s1,1,tempo,80.0,78.0,1178,18094060,2,0.15,ok
+baseline-ens5,2026-11-21T09:52:09,dc46288,ens5,8,n1000_s1,2,tempo,80.0,78.0,1178,18088020,2,0.15,ok
+baseline-ens5,2026-11-21T09:53:27,dc46288,ens5,8,n1000_s1,3,tempo,80.0,78.0,1178,18041160,2,0.15,ok
+baseline-ens5,2026-11-21T09:54:45,dc46288,ens5,8,n20000_s1,1,tempo,80.0,78.01,23764,843111,2,0.15,ok
+baseline-ens5,2026-11-21T09:56:03,dc46288,ens5,8,n20000_s1,2,tempo,80.0,78.01,23760,838693,2,0.15,ok
+baseline-ens5,2026-11-21T09:57:21,dc46288,ens5,8,n20000_s1,3,tempo,80.0,78.01,23756,840234,2,0.15,ok
+baseline-ens5,2026-11-21T09:58:39,dc46288,ens5,8,n100000_s1,1,tempo,80.0,78.03,117025,145960,2,0.15,ok
+baseline-ens5,2026-11-21T09:59:58,dc46288,ens5,8,n100000_s1,2,tempo,80.0,78.03,117022,146586,2,0.15,ok
+baseline-ens5,2026-11-21T10:01:16,dc46288,ens5,8,n100000_s1,3,tempo,80.0,78.03,117046,147693,2,0.15,ok
