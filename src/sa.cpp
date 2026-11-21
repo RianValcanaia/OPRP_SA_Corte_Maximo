@@ -5,7 +5,12 @@
 #include <stdexcept>
 #include <string>
 
+#include "coloracao.hpp"
 #include "random.hpp"
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace sa {
 
@@ -157,6 +162,70 @@ namespace sa {
             }
         }
 
+        // embaralha (base, i), cada vertice tem o seu sorteio, sem estado compartilhado
+        // entre threads, e o resultado nao depende de quantas threads dividem o trabalho.
+        inline uint32_t sorteioDoVertice(
+            uint64_t base, 
+            int32_t i
+        ) {
+            uint64_t z = base + static_cast<uint64_t>(i) * 0x9E3779B97F4A7C15ULL;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+            return static_cast<uint32_t>((z ^ (z >> 31)) >> 32);
+        }
+
+        // o grafo ja vem organizado por cor, percorre as cores uma depois da outra
+        void varrerColorido(
+            const grafo::Grafo &grafo,
+            const std::vector<uint32_t> &adjacencia,
+            const coloracao::Coloracao &cores,
+            const std::vector<uint32_t> &limiares,
+            Estado &estado,
+            uint64_t base,
+            int threads
+        ) {
+            const int32_t *offsets = grafo.offsets.data();
+            const uint32_t *adj = adjacencia.data();
+            const uint32_t *limiar = limiares.data();
+            const int32_t *inicio = cores.inicio.data();   // o grafo esta organizado por cor
+
+            uint8_t *particao = estado.particao.data();
+            int32_t *delta = estado.delta.data();
+
+            int64_t ganho = 0;      // soma dos ganhos dos movimentos aceitos
+
+            #pragma omp parallel num_threads(threads)
+            {
+                for (int32_t c = 0; c < cores.numCores; ++c) {
+                    #pragma omp for schedule(static) reduction(+ : ganho)
+                    for (int32_t i = inicio[c]; i < inicio[c + 1]; ++i) {
+                        const int32_t d = delta[i];
+
+                        const uint32_t sorteio = sorteioDoVertice(base, i);
+                        uint32_t lim = UINT32_MAX;
+                        if (d < 0) lim = limiar[-d];
+                        if (sorteio > lim) continue;
+
+                        ganho += d;
+                        particao[i] = !particao[i];
+                        delta[i] = -d;
+
+                        const uint32_t particao_i = particao[i];
+                        for (int32_t k = offsets[i]; k < offsets[i + 1]; ++k) {
+                            const uint32_t entrada = adj[k];
+                            const uint32_t j = entrada & ~BIT_NEGATIVO;
+                            const int32_t variacao = 2 - 4 * static_cast<int32_t>((entrada >> 31) ^ particao[j] ^ particao_i);
+
+                            #pragma omp atomic
+                            delta[j] += variacao;
+                        }
+                    }
+                }
+            }
+
+            estado.corte += ganho;
+        }
+
         // aceita so movimentos de ganho estritamente positivo e varre
         // ate nenhum vertice poder melhorar o corte 
         long descidaGulosa(
@@ -262,12 +331,28 @@ namespace sa {
     }
 
     Resultado executar(
-        const grafo::Grafo &grafo,
+        const grafo::Grafo &grafoOriginal,
         const Parametros &param
     ) {
         validarParametros(param);
 
         const auto inicio = Relogio::now();
+
+        coloracao::GrafoColorido colorido;
+        if (param.colorida) {
+            const coloracao::Coloracao cores = coloracao::colorir(grafoOriginal);
+            const std::string problema = coloracao::verificar(grafoOriginal, cores);
+
+            if (!problema.empty()) throw std::logic_error("coloracao invalida: " + problema);
+
+            colorido = coloracao::organizarPorCor(grafoOriginal, cores);
+            const std::string problemaOrganizado = coloracao::verificar(colorido.grafo, colorido.coloracao);
+
+            if (!problemaOrganizado.empty()) throw std::logic_error("coloracao organizada invalida: " + problemaOrganizado);
+        }
+        const coloracao::Coloracao &cores = colorido.coloracao;
+        const grafo::Grafo &grafo = param.colorida ? colorido.grafo : grafoOriginal;
+
         rng::Gerador gerador(param.seed);
         Estado e = estadoInicial(grafo, gerador);
 
@@ -280,6 +365,16 @@ namespace sa {
         r.corteInicial = e.corte;
         r.corteMelhor = e.corte;
         r.melhor = e.particao;
+
+        r.numCores = param.colorida ? cores.numCores : 0;
+
+        // uma varredura, sequencial ou colorida
+        auto varrerUma = [&]() {
+            if (param.colorida) 
+                varrerColorido(grafo, adjacencia, cores, limiares, e, gerador(), param.threads);
+            else 
+                varrer(grafo, adjacencia, limiares, e, gerador);
+        };
 
         // traco opcional da trajetoria
         auto escreverTraco = [&](double temp, int64_t corte, int64_t melhorCorte) {
@@ -305,7 +400,7 @@ namespace sa {
             for (long s = 0; s < param.varreduras; ++s) {
                 const double temp = temperaturaGeometrica(s, param.varreduras, param.T0, param.T1);
                 montarLimiares(limiares, temp);
-                varrer(grafo, adjacencia, limiares, e, gerador);
+                varrerUma();
                 ++r.varreduras;
                 registrarMelhor();
 
@@ -332,8 +427,8 @@ namespace sa {
                 }
 
                 for (long k = 0; k < porConsulta; ++k) {
-                    varrer(grafo, adjacencia, limiares, e, gerador);
-                    
+                    varrerUma();
+
                     ++r.varreduras;
                     registrarMelhor();
                 }
@@ -363,6 +458,18 @@ namespace sa {
 
         r.aviso = verificarEstado(grafo, e);
         if (r.aviso.empty()) r.aviso = verificarEstado(grafo, melhor);
+
+        if (param.colorida) {
+            // volta aos ids originais e confere o corte no grafo ORIGINAL
+            std::vector<uint8_t> original(grafoOriginal.qtd_vertices);
+            for (int32_t v = 0; v < grafoOriginal.qtd_vertices; ++v) original[v] = r.melhor[colorido.novoId[v]];
+
+            const int64_t corteOriginal = grafo::valorDoCorte(grafoOriginal, original);
+            if (corteOriginal != r.corteDescida && r.aviso.empty())
+                r.aviso = "corte no grafo original (" + std::to_string(corteOriginal) + ") difere do calculado no grafo organizado (" +
+                          std::to_string(r.corteDescida) + ")";
+            r.melhor = std::move(original);
+        }
         return r;
     }
 

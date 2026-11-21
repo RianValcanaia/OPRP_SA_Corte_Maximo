@@ -31,6 +31,8 @@ namespace sa {
         bool guiadoPorTempo = false;    // true: T segue o relógio até 'prazo'
         Relogio::time_point prazo{};    // instante em que o SA deve terminar 
         uint64_t seed = 12345;
+        bool colorida = false;          // true = varredura colorida
+        int threads = 1;                // threads openmp da varredura colorida 
         std::ostream *traco = nullptr;  // se != nullptr, escreve aqui a trajetoria do SA em CSV
         long pontosTraco = 1000;        // quantos pontos (linhas) o traco tem, aproximadamente
     };
@@ -41,6 +43,7 @@ namespace sa {
         int64_t corteMelhor = 0;       
         int64_t corteFinal = 0;        
         int64_t corteDescida = 0;      
+        int numCores = 0;              // cores usadas pela coloracao (0 para sequencial)
         long varreduras = 0;           // varreduras realizadas
         long varreduraDaMelhor = 0;    // 0 = estado inicial; s = fim da s-ésima varredura
         double segundos = 0;           // tempo gasto somente no SA

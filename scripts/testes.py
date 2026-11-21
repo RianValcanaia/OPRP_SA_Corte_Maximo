@@ -215,6 +215,59 @@ def montar_testes(ctx):
         exigir(a["saida"].read_bytes() == b["saida"].read_bytes(), "mesma semente deu soluções diferentes")
     T.append(("determinismo: mesma semente, mesma solução (--varreduras)", determinismo))
 
+    # ---- varredura colorida (OpenMP): o resultado NÃO pode depender do número de threads
+    COL = ["--varredura", "colorida", "--varreduras", "300", "--seed", "1"]
+
+    def colorida_borda():
+        for nome, grafo, n in (("n=1", "1 0\n", 1), ("só isolados", "6 0\n", 6), ("n=2", "2 1\n1 2 1\n", 2)):
+            checar_ok(ctx.rodar(grafo, COL + ["--threads", "4"]), n=n)
+    T.append(("colorida: n=1, só vértices isolados e n=2 (4 threads)", colorida_borda))
+
+    def colorida_otimo():
+        r = random.Random(555)
+        falhas = []
+        for k in range(30):
+            n = r.randint(3, 14)
+            pares = [(u, v) for u in range(n) for v in range(u + 1, n)]
+            arestas = [(u, v, r.choice((1, -1))) for u, v in r.sample(pares, r.randint(0, min(len(pares), 3 * n)))]
+            res = ctx.rodar(texto_grafo(n, arestas), ["--varredura", "colorida", "--threads", "3", "--varreduras", "2000", "--seed", str(k + 1)])
+            try:
+                checar_ok(res, forca_bruta(n, arestas), n)
+            except Falha as e:
+                falhas.append(f"grafo {k} (n={n}): {e}")
+        if falhas:
+            raise Falha(f"{len(falhas)} de 30 falharam; ex.: {falhas[0]}")
+    T.append(("colorida (3 threads): 30 grafos pequenos == ótimo por força bruta", colorida_otimo))
+
+    def colorida_mesma_solucao_com_qualquer_numero_de_threads():
+        r = random.Random(99)
+        n = 800
+        pares = set()
+        while len(pares) < 4000:
+            u, v = r.randrange(n), r.randrange(n)
+            if u != v:
+                pares.add((min(u, v), max(u, v)))
+        aleatorio = texto_grafo(n, [(u, v, r.choice((1, -1))) for u, v in sorted(pares)])
+        # hub: o vértice 1 liga em todos, e há arestas extras entre as folhas ⇒ muitos vizinhos em comum
+        # (vários vértices da mesma cor atualizam o mesmo delta[j] ao mesmo tempo: estressa o atomic)
+        extras = {(min(u, v), max(u, v)) for u, v in ((r.randrange(1, 1500), r.randrange(1, 1500)) for _ in range(6000)) if u != v}
+        arestas = [(0, v, r.choice((1, -1))) for v in range(1, 1500)] + [(u, v, r.choice((1, -1))) for u, v in sorted(extras)]
+        hub = texto_grafo(1500, arestas)
+        for nome, grafo in (("aleatório n=800", aleatorio), ("hub n=1500", hub)):
+            saidas = {}
+            for th in (1, 2, 4, 8):
+                res = ctx.rodar(grafo, COL + ["--threads", str(th)])
+                checar_ok(res)
+                saidas[th] = res["saida"].read_bytes()
+            exigir(len(set(saidas.values())) == 1,
+                   f"{nome}: a solução muda com o número de threads (indício de corrida): "
+                   + ", ".join(f"{th}t={hash(s) % 10**6}" for th, s in saidas.items()))
+    T.append(("colorida: mesma solução com 1, 2, 4 e 8 threads (aleatório e hub)", colorida_mesma_solucao_com_qualquer_numero_de_threads))
+
+    ok("--varredura colorida com 1 thread", PEQUENO, args=["--varredura", "colorida", "--threads", "1", "--varreduras", "100"])
+    ok("--threads 4 sem --varredura usa a colorida", PEQUENO, args=["--threads", "4", "--varreduras", "100"])
+    ok("--varredura sequencial com 1 thread", PEQUENO, args=["--varredura", "sequencial", "--varreduras", "100"])
+
     # ---- entradas inválidas (devem dar erro limpo)
     erro("cabeçalho inválido", "abc def\n", trecho="cabeçalho")
     erro("arquivo vazio", "", trecho="cabeçalho")
@@ -266,6 +319,12 @@ def montar_testes(ctx):
         ("--varreduras negativo", ["--varreduras", "-3"], "varreduras"),
         ("--varreduras não numérico", ["--varreduras", "dez"], "--varreduras"),
         ("--trace em pasta inexistente", ["--varreduras", "10", "--trace", "/nao/existe/t.csv"], "criar"),
+        ("--threads zero", ["--varreduras", "10", "--threads", "0"], "threads"),
+        ("--threads negativo", ["--varreduras", "10", "--threads", "-2"], "threads"),
+        ("--threads absurdo (5000)", ["--varreduras", "10", "--threads", "5000"], "threads"),
+        ("--threads não numérico", ["--varreduras", "10", "--threads", "muitas"], "--threads"),
+        ("--varredura desconhecida", ["--varreduras", "10", "--varredura", "paralela"], "--varredura"),
+        ("--varredura sequencial com --threads > 1", ["--varreduras", "10", "--varredura", "sequencial", "--threads", "4"], "sequencial"),
     ]:
         erro(f"argumento inválido: {nome}", PEQUENO, args=args, trecho=trecho)
 

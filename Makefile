@@ -4,7 +4,7 @@
 # Uso: ./maxcut <grafo.txt> <saida.txt> [--tempo S] [--varreduras N] [--seed N] [--t0 X] [--t1 X] [--trace ARQ.csv]
 
 CXX      ?= g++
-CXXFLAGS ?= -std=c++17 -O3 -Wall -Wextra
+CXXFLAGS ?= -std=c++17 -O3 -Wall -Wextra -fopenmp
 
 FONTES  := $(wildcard src/*.cpp)
 OBJETOS := $(patsubst src/%.cpp,build/%.o,$(FONTES))
@@ -24,7 +24,7 @@ build/%.o: src/%.cpp | build
 build:
 	mkdir -p build
 
-# verificador externo fornecido em aux/ (compilado em build/ para nao sujar aux/)
+# verificador aux/
 build/verificador: aux/verificador.c | build
 	gcc -O2 -Wall -Wextra -o $@ $<
 
