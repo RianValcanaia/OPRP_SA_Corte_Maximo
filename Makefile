@@ -1,7 +1,7 @@
 #   make            compila o programa (./maxcut)
 #   make clean      apaga build/ e o executavel
 #
-# Uso: ./maxcut <grafo.txt> <saida.txt> [--tempo S] [--varreduras N] [--seed N] [--t0 X] [--t1 X] [--trace ARQ.csv]
+# Uso: mpirun -np N ./maxcut <grafo.txt> <saida.txt> [opcoes]   (veja o README)
 
 CXX      = mpicxx
 CXXFLAGS ?= -std=c++17 -O3 -Wall -Wextra -fopenmp -DOMPI_SKIP_MPICXX
