@@ -1,5 +1,0 @@
-rótulo: mpi-np2-indep | git: 1ae75db+mod | modo: 80 s | máquina: rcvalcanaia (16 CPUs) | 2026-11-21T16:22:20
-
-instância    exec   mediana       min       max      média      meta  med-meta t_ext máx  problemas
----------------------------------------------------------------------------------------------------
-n100000_s1      3  117057.0    117035    117065   117052.3    116548    +509.0     78.15  

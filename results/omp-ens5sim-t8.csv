@@ -1,7 +1,0 @@
-rotulo,data,git,maquina,cpus,instancia,seed,modo,tempo_alvo_s,tempo_externo_s,corte,varreduras,t0,t1,status
-omp-ens5sim-t8,2026-11-21T15:17:52,984aa6c+mod,rcvalcanaia,16,n20000_s1,1,tempo,80.0,78.01,23760,2671763,2,0.15,ok
-omp-ens5sim-t8,2026-11-21T15:19:10,984aa6c+mod,rcvalcanaia,16,n20000_s1,2,tempo,80.0,78.01,23779,2644757,2,0.15,ok
-omp-ens5sim-t8,2026-11-21T15:20:28,984aa6c+mod,rcvalcanaia,16,n20000_s1,3,tempo,80.0,78.01,23765,2638743,2,0.15,ok
-omp-ens5sim-t8,2026-11-21T15:21:46,984aa6c+mod,rcvalcanaia,16,n100000_s1,1,tempo,80.0,78.04,117029,653649,2,0.15,ok
-omp-ens5sim-t8,2026-11-21T15:23:04,984aa6c+mod,rcvalcanaia,16,n100000_s1,2,tempo,80.0,78.04,117071,660021,2,0.15,ok
-omp-ens5sim-t8,2026-11-21T15:24:22,984aa6c+mod,rcvalcanaia,16,n100000_s1,3,tempo,80.0,78.04,117087,656178,2,0.15,ok

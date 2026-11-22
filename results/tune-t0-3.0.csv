@@ -1,7 +1,0 @@
-rotulo,data,git,maquina,cpus,instancia,seed,modo,tempo_alvo_s,tempo_externo_s,corte,varreduras,t0,t1,status
-tune-t0-3.0,2026-11-21T15:49:31,1ae75db,rcvalcanaia,16,n20000_s1,1,tempo,32.0,30.01,23754,919596,3,0.15,ok
-tune-t0-3.0,2026-11-21T15:50:01,1ae75db,rcvalcanaia,16,n20000_s1,2,tempo,32.0,30.01,23751,908350,3,0.15,ok
-tune-t0-3.0,2026-11-21T15:50:31,1ae75db,rcvalcanaia,16,n20000_s1,3,tempo,32.0,30.01,23752,908060,3,0.15,ok
-tune-t0-3.0,2026-11-21T15:51:01,1ae75db,rcvalcanaia,16,n100000_s1,1,tempo,32.0,30.04,117031,222701,3,0.15,ok
-tune-t0-3.0,2026-11-21T15:51:31,1ae75db,rcvalcanaia,16,n100000_s1,2,tempo,32.0,30.04,117035,222546,3,0.15,ok
-tune-t0-3.0,2026-11-21T15:52:01,1ae75db,rcvalcanaia,16,n100000_s1,3,tempo,32.0,30.04,117049,224371,3,0.15,ok

@@ -1,5 +1,0 @@
-rótulo: pt1-indep16 | git: a4fdc73+mod | modo: 32 s | máquina: rcvalcanaia (16 CPUs) | 2026-11-21T16:41:44
-
-instância    exec   mediana       min       max      média      meta  med-meta t_ext máx  problemas
----------------------------------------------------------------------------------------------------
-n100000_s1      3  116965.0    116928    116969   116954.0    116548    +417.0     30.24  
