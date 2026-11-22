@@ -1,6 +1,7 @@
 #include "sa.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -393,6 +394,39 @@ namespace sa {
             }
         };
 
+        // ponto de controle: entrega a melhor particao vista (ids originais) a cada intervaloPonto segundos.
+        const bool temPonto = param.intervaloPonto > 0 && static_cast<bool>(param.aoSalvarPonto);
+        auto ultimoPonto = Relogio::now();
+        int64_t corteDoPonto = LLONG_MIN;
+
+        auto salvarPonto = [&](bool forcar) {
+            if (!temPonto) return;
+
+            const auto agora = Relogio::now();
+            
+            if (!forcar && segundos(agora - ultimoPonto) < param.intervaloPonto) 
+                return;
+            
+            ultimoPonto = agora;
+            
+            if (r.corteMelhor == corteDoPonto) 
+                return;
+            
+            corteDoPonto = r.corteMelhor;
+
+            Estado copia = estadoDaParticao(grafo, r.melhor);
+            descidaGulosa(grafo, adjacencia, copia);
+
+            if (param.colorida) {
+                std::vector<uint8_t> original(grafoOriginal.qtd_vertices);
+                for (int32_t v = 0; v < grafoOriginal.qtd_vertices; ++v) original[v] = copia.particao[colorido.novoId[v]];
+                param.aoSalvarPonto(original, copia.corte);
+            } else {
+                param.aoSalvarPonto(copia.particao, copia.corte);
+            }
+        };
+        salvarPonto(true);      // logo no inicio: ja existe uma saida valida
+
         if (!param.guiadoPorTempo) {
             // varreduras fixas: T depende só do índice da varredura (determinístico)
             const long passoTraco = std::max(1L, param.varreduras / std::max(1L, param.pontosTraco));
@@ -403,6 +437,7 @@ namespace sa {
                 varrerUma();
                 ++r.varreduras;
                 registrarMelhor();
+                salvarPonto(false);
 
                 if (r.varreduras % passoTraco == 0) escreverTraco(temp, e.corte, r.corteMelhor);
             }
@@ -432,6 +467,7 @@ namespace sa {
                     ++r.varreduras;
                     registrarMelhor();
                 }
+                salvarPonto(false);
             }
         }
 

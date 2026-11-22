@@ -33,6 +33,9 @@ namespace {
     // tempo reservado para o que vem depois do SA
     constexpr double RESERVA_FINAL = 2.0;
 
+    // de quantos em quantos segundos a melhor solucao ate agora eh gravada na saida (0 = so no fim)
+    constexpr double INTERVALO_PONTO_PADRAO = 5.0;
+
     // maior --tempo aceito
     constexpr double TEMPO_MAXIMO = 86400.0;
 
@@ -50,8 +53,9 @@ namespace {
                      "  --varreduras N  roda N varreduras fixas em vez de usar o tempo\n"
                      "  --threads N     threads OpenMP por rank (padrão e 0 = as CPUs do rank; acima disso, reduz; 1 = sequencial)\n"
                      "  --varredura V   sequencial ou colorida\n"
-                     "  --trace ARQ     grava a trajetória do SA em CSV\n",
-                     programa, TEMPO_PADRAO);
+                     "  --trace ARQ     grava a trajetória do SA em CSV\n"
+                     "  --ponto S       grava a melhor solução na saída a cada S segundos (padrão %.0f; 0 = só no fim)\n",
+                     programa, TEMPO_PADRAO, INTERVALO_PONTO_PADRAO);
     }
 
     uint64_t sementeAleatoria() {
@@ -109,6 +113,8 @@ namespace {
         sa::Parametros param;
         param.seed = sementeAleatoria();
 
+        param.intervaloPonto = INTERVALO_PONTO_PADRAO;
+
         bool temTempo = false, temVarreduras = false;
         double tempoTotal = TEMPO_PADRAO;
         long long threads = 0;          // 0 = automatico (as CPUs deste rank)
@@ -141,8 +147,12 @@ namespace {
                 threads = lerInteiro(chave, valor);
                 temThreads = true;
             }
-            else if (chave == "--varredura") 
+            else if (chave == "--varredura")
                 tipoVarredura = valor;
+            else if (chave == "--ponto") {
+                param.intervaloPonto = lerReal(chave, valor);
+                if (param.intervaloPonto < 0) throw std::invalid_argument("--ponto deve ser >= 0 (0 desliga)");
+            }
             else throw std::invalid_argument("argumento desconhecido '" + chave + "'");
         }
 
@@ -198,6 +208,19 @@ namespace {
         for (size_t i = 0; i < x.size(); ++i) linha[i] = x[i] ? '1' : '0';
         linha[x.size()] = '\n';
 
+        // primeiro num arquivo temporario ao lado, depois rename se o processo for morto no meio da
+        // gravacao, a saida anterior continua inteira e valida, nunca um arquivo cortado pela metade.
+        const std::string temporario = caminho + ".tmp";
+        FILE *t = std::fopen(temporario.c_str(), "wb");
+
+        if (t) {
+            const size_t escritos = std::fwrite(linha.data(), 1, linha.size(), t);
+            const bool ok = (std::fclose(t) == 0) && escritos == linha.size();
+            if (ok && std::rename(temporario.c_str(), caminho.c_str()) == 0) return;
+            std::remove(temporario.c_str());
+        }
+
+        // sem permissao para criar o temporario (ou rename recusado, ex.: saida eh um dispositivo): grava direto
         FILE *f = std::fopen(caminho.c_str(), "wb");
 
         if (!f) throw std::runtime_error("não foi possível criar '" + caminho + "'");
@@ -269,6 +292,20 @@ namespace {
             // sementes: a do rank 0 vale para todos; cada rank soma um deslocamento (rank 0 fica com a original)
             const uint64_t sementeBase = dist::valorDoRank0(param.seed);
             param.seed = sementeBase + static_cast<uint64_t>(amb.rank) * 0x9E3779B97F4A7C15ULL;
+
+            if (rank0 && param.intervaloPonto > 0) {
+                bool avisou = false;
+                param.aoSalvarPonto = [&CAMINHO_SAIDA, &avisou](const std::vector<uint8_t> &particao, int64_t) {
+                    try {
+                        escreverSolucao(CAMINHO_SAIDA, particao);
+                    } catch (const std::exception &erro) {
+                        if (!avisou) std::fprintf(stderr, "nota: nao foi possivel gravar o ponto de controle: %s\n", erro.what());
+                        avisou = true;
+                    }
+                };
+            } else {
+                param.intervaloPonto = 0;
+            }
 
             // se a cadeia deste rank falhar, ele continua nas chamadas coletivas com corte "infinitamente ruim"
             sa::Resultado r;

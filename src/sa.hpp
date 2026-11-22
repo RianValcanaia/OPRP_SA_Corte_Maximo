@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -33,6 +34,8 @@ namespace sa {
         uint64_t seed = 12345;
         bool colorida = false;          // true = varredura colorida
         int threads = 1;                // threads openmp da varredura colorida 
+        double intervaloPonto = 0;
+        std::function<void(const std::vector<uint8_t> &particao, int64_t corte)> aoSalvarPonto;
         std::ostream *traco = nullptr;  // se != nullptr, escreve aqui a trajetoria do SA em CSV
         long pontosTraco = 1000;        // quantos pontos (linhas) o traco tem, aproximadamente
     };

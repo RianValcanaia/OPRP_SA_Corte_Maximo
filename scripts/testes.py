@@ -222,6 +222,41 @@ def montar_testes(ctx):
         exigir(0.5 < r["tempo"] < 2.0, f"--tempo 3 deveria durar ~1 s de SA, durou {r['tempo']:.2f}s")
     T.append(("--tempo 3: termina em ~1 s (tempo - reserva)", tempo_curto))
 
+    # ---- pontos de controle: se o processo for morto antes do fim, ja existe uma saida valida
+    def morto_no_meio(args, np=None, espera=4.0):
+        grafo = ctx.novo_caminho(".txt")
+        conteudo = grafo_aleatorio(3000, 12000, 11)
+        grafo.write_bytes(conteudo if isinstance(conteudo, bytes) else conteudo.encode())
+        saida = ctx.novo_caminho(".out")
+        prefixo = ["mpirun", "--oversubscribe", "-np", str(np)] if np else []
+        p = subprocess.Popen(prefixo + [str(ctx.maxcut), str(grafo), str(saida), "--tempo", "60", "--threads", "2"] + args,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(espera)
+        exigir(p.poll() is None, "o programa terminou antes de ser morto (o teste precisa de uma execucao longa)")
+        p.kill()
+        p.wait()
+        if np:       # o mpirun morre, mas os ranks podem demorar um instante
+            time.sleep(1.0)
+            subprocess.run(["pkill", "-9", "-f", str(saida)], capture_output=True)
+        exigir(saida.exists(), "nao havia saida depois de matar o processo")
+        v = subprocess.run([str(ctx.verificador), str(grafo), str(saida)], capture_output=True, text=True)
+        exigir(v.returncode == 0 and re.fullmatch(r"-?\d+", v.stdout.strip()), f"saida invalida apos matar: {v.stdout.strip() or v.stderr.strip()}")
+        exigir(int(v.stdout.strip()) > 0, f"saida valida mas sem corte positivo: {v.stdout.strip()}")
+    T.append(("ponto de controle: morto aos 4 s (--ponto 0.5), a saida ja existe e eh valida", lambda: morto_no_meio(["--ponto", "0.5"])))
+    T.append(("ponto de controle: morto aos 7 s com o padrao (5 s), a saida ja existe e eh valida", lambda: morto_no_meio([], espera=7.0)))
+
+    def sem_ponto():
+        r = ctx.rodar(PEQUENO, ["--varreduras", "200", "--ponto", "0"])
+        checar_ok(r)
+    T.append(("--ponto 0 (so no fim): saida valida", sem_ponto))
+
+    def ponto_frequente():
+        r = ctx.rodar(grafo_aleatorio(300, 1200, 7), ["--varreduras", "2000", "--ponto", "0.001", "--seed", "1"])
+        checar_ok(r, n=300)
+        r2 = ctx.rodar(grafo_aleatorio(300, 1200, 7), ["--varreduras", "2000", "--ponto", "0", "--seed", "1"])
+        exigir(r["saida"].read_bytes() == r2["saida"].read_bytes(), "o ponto de controle nao pode mudar a solucao final")
+    T.append(("--ponto muito frequente nao muda a solucao final", ponto_frequente))
+
     ok("--varreduras 1 (uma única varredura)", PEQUENO, args=["--varreduras", "1", "--seed", "1"])
     ok("T0 == T1 (temperatura constante)", PEQUENO, args=VAR + ["--t0", "0.5", "--t1", "0.5"])
     ok("mesma semente => mesma solução", PEQUENO, args=VAR)
@@ -348,6 +383,9 @@ def montar_testes(ctx):
             exigir(0.5 < r["tempo"] < 2.8, f"--tempo 3 com -np 2 deveria durar ~1 s de SA, durou {r['tempo']:.2f}s")
         T.append(("--tempo 3: mpi -np 2 termina no prazo", mpi_tempo))
 
+        T.append(("ponto de controle: mpi -np 2 morto aos 4 s, a saida ja existe e eh valida",
+                  lambda: morto_no_meio(["--ponto", "0.5"], np=2)))
+
     ok("--varredura colorida com 1 thread", PEQUENO, args=["--varredura", "colorida", "--threads", "1", "--varreduras", "100"])
     ok("--threads 4 sem --varredura usa a colorida", PEQUENO, args=["--threads", "4", "--varreduras", "100"])
     ok("--threads 0 (todas as CPUs disponíveis)", PEQUENO, args=["--threads", "0", "--varreduras", "100"])
@@ -409,6 +447,7 @@ def montar_testes(ctx):
         ("--threads absurdo (5000)", ["--varreduras", "10", "--threads", "5000"], "threads"),
         ("--threads não numérico", ["--varreduras", "10", "--threads", "muitas"], "--threads"),
         ("--varredura desconhecida", ["--varreduras", "10", "--varredura", "paralela"], "--varredura"),
+        ("--ponto negativo", ["--varreduras", "10", "--ponto", "-1"], "--ponto"),
         ("--varredura sequencial com --threads > 1", ["--varreduras", "10", "--varredura", "sequencial", "--threads", "4"], "sequencial"),
     ]:
         erro(f"argumento inválido: {nome}", PEQUENO, args=args, trecho=trecho)
