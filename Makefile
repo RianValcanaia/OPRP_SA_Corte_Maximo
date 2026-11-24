@@ -2,9 +2,6 @@
 #   make maxcut       so o ./maxcut (com opcoes, para experimentos)
 #   make competicao   so o ./competicao (versao da competicao, sem opcoes)
 #   make clean        apaga build/ e os executaveis
-#
-# Uso: mpirun -np N ./maxcut <grafo.txt> <saida.txt> [opcoes]
-#      mpirun -np N ./competicao <grafo.txt> <saida.txt>
 
 CXX      = mpicxx
 CXXFLAGS ?= -std=c++17 -O3 -Wall -Wextra -fopenmp -DOMPI_SKIP_MPICXX
