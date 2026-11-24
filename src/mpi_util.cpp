@@ -31,32 +31,40 @@ namespace dist {
             return std::max(1, omp_get_num_procs());
         }
 
-        // liberamos todas as CPUs do no e reiniciamos o processo
-        void liberarCpusEReiniciar(char **argv) {
-            if (std::getenv("OMPI_COMM_WORLD_SIZE") == nullptr) 
-                return;     // fora do mpirun, somente retorna
-            
-            if (std::getenv("MAXCUT_JA_REINICIADO") != nullptr) 
+        void prepararAmbienteEReiniciar(char **argv) {
+            if (std::getenv("MAXCUT_JA_REINICIADO") != nullptr)
                 return;     // evita laco infinito
 
-            // guarda quantas cpus havia
-            const int antes = cpusNaMascara();
-            cpu_set_t todas;
-            CPU_ZERO(&todas);
+            bool reiniciar = false;
 
-            for (int i = 0; i < CPU_SETSIZE; ++i) 
-                CPU_SET(i, &todas);
-            
-            if (sched_setaffinity(0, sizeof(todas), &todas) != 0)
+            // O mpirun prende cada rank a poucos nucleos; liberamos todas as CPUs do no.
+            if (std::getenv("OMPI_COMM_WORLD_SIZE") != nullptr) {
+                
+                // guarda quantas cpus havia
+                const int antes = cpusNaMascara();
+                cpu_set_t todas;
+                CPU_ZERO(&todas);
+
+                for (int i = 0; i < CPU_SETSIZE; ++i)
+                    CPU_SET(i, &todas);
+
+                // so reinicia se a mascara realmente alargou
+                if (sched_setaffinity(0, sizeof(todas), &todas) == 0 && cpusNaMascara() > antes)
+                    reiniciar = true;
+            }
+
+            // espera das threads nas barreiras 
+            if (std::getenv("OMP_WAIT_POLICY") == nullptr && std::getenv("GOMP_SPINCOUNT") == nullptr) {
+                setenv("GOMP_SPINCOUNT", "1000", 1);
+                reiniciar = true;
+            }
+
+            if (!reiniciar)
                 return;
-            
-            // so continua se a mascara realmente alargou
-            if (cpusNaMascara() <= antes) 
-                return;                           // ja estava larga
 
             setenv("MAXCUT_JA_REINICIADO", "1", 1);
             execv("/proc/self/exe", argv);
-            // se o exec falhar, segue com a mascara larga 
+            // se o exec falhar, segue assim mesmo (so o libgomp fica com a configuracao antiga)
         }
 
         // MPI_Bcast com contagem int: o grafo do trabalho cabe com folga
@@ -74,7 +82,7 @@ namespace dist {
     }  // namespace
 
     Ambiente iniciar(int &argc, char **&argv) {
-        liberarCpusEReiniciar(argv);
+        prepararAmbienteEReiniciar(argv);
 
         int fornecido = 0;
         MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &fornecido);

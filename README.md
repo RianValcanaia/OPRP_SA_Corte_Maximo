@@ -21,7 +21,7 @@ mpirun -np 4 ./maxcut <grafo.txt> <saida.txt>
 No cluster:
 
 ```
-mpirun --mca btl_tcp_if_include 10.20.221.0/24 -np N --machinefile hosts.txt ./maxcut <grafo.txt> <saida.txt>
+mpirun --mca btl_tcp_if_include ip/mascara -np N --machinefile hosts.txt ./maxcut <grafo.txt> <saida.txt>
 ```
 
 ### Entrada e saída
