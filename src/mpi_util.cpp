@@ -7,7 +7,10 @@
 #include <algorithm>
 #include <climits>
 #include <cstdlib>
+#include <fstream>
+#include <set>
 #include <stdexcept>
+#include <string>
 
 #include <unistd.h>
 
@@ -29,6 +32,27 @@ namespace dist {
 
             // se a chamada falhar, quantas CPUs o OpenMP enxerga
             return std::max(1, omp_get_num_procs());
+        }
+
+        // devolve quantos nucleos fisicos este processo tem permissao de usar
+        int nucleosFisicosNaMascara() {
+            cpu_set_t atual;
+            if (sched_getaffinity(0, sizeof(atual), &atual) != 0)
+                return cpusNaMascara();
+            
+            std::set<std::string> nucleos;
+            for (int i = 0; i < CPU_SETSIZE; ++i) {
+                if (!CPU_ISSET(i, &atual))
+                    continue;
+
+                std::ifstream arq("/sys/devices/system/cpu/cpu" + std::to_string(i) + "/topology/thread_siblings_list");
+                std::string irmas;
+                if (!(arq >> irmas))
+                    return cpusNaMascara();     // sem /sys: usa as CPUs logicas
+
+                nucleos.insert(irmas);
+            }
+            return std::max(1, static_cast<int>(nucleos.size()));
         }
 
         void prepararAmbienteEReiniciar(char **argv) {
@@ -98,6 +122,7 @@ namespace dist {
         MPI_Comm_free(&no);
 
         amb.cpusPorRank = std::max(1, cpusNaMascara() / amb.tamanhoLocal);
+        amb.nucleosPorRank = std::max(1, nucleosFisicosNaMascara() / amb.tamanhoLocal);
         return amb;
     }
 

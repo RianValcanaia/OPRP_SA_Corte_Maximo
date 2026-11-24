@@ -10,18 +10,24 @@ Precisa de g++ com OpenMP e de uma implementação de MPI (Open MPI) com `mpicxx
 make
 ```
 
-Gera o executável `./maxcut`. `make clean` apaga o executável e a pasta `build/`.
+Gera os executáveis `./maxcut` e `./competicao`. `make maxcut` ou `make competicao` compilam só um deles. `make clean` apaga os executáveis e a pasta `build/`.
 
 ## Executar
 
-```
-mpirun -np 4 ./maxcut <grafo.txt> <saida.txt>
-```
-
-No cluster:
+O programa é executado no cluster. Lista das máquinas (uma por linha) em `hosts.txt`.
 
 ```
-mpirun --mca btl_tcp_if_include ip/mascara -np N --machinefile hosts.txt ./maxcut <grafo.txt> <saida.txt>
+mpirun --map-by node --machinefile hosts.txt -np N ./maxcut <grafo.txt> <saida.txt>
+```
+
+`--map-by node` espalha os processos entre as máquinas (um por máquina com `-np` igual ao número de máquinas).
+
+### Versão da competição
+
+Roda 90 s, escolhe as temperaturas pelo tamanho do grafo. Na Babitonga (7 máquinas, baia1 a baia7):
+
+```
+mpirun --map-by node --machinefile hosts.txt -np 7 ./competicao <grafo.txt> <saida.txt>
 ```
 
 ### Entrada e saída

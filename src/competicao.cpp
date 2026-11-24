@@ -125,7 +125,7 @@ namespace {
             param.T0 = temp.t0;
             param.T1 = temp.t1;
             param.guiadoPorTempo = true;
-            param.threads = std::max(1, amb.cpusPorRank);
+            param.threads = std::max(1, amb.nucleosPorRank);     // uma thread por nucleo fisico
             param.colorida = param.threads > 1;
 
             // prazo comum

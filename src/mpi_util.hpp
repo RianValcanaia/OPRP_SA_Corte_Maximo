@@ -12,7 +12,8 @@ namespace dist {
         int rank = 0;               // [0, tamanho)
         int tamanho = 1;            // total de ranks
         int tamanhoLocal = 1;       // quantos ranks rodam neste mesmo nó
-        int cpusPorRank = 1;        // CPUs que este rank pode usar
+        int cpusPorRank = 1;        // CPUs logicas que este rank pode usar
+        int nucleosPorRank = 1;     // nucleos fisicos que este rank pode usar
     };
 
     struct MelhorCorte {
